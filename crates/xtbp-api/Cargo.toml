@@ -1,0 +1,18 @@
+[package]
+name = "xtbp-api"
+description = "xTB-Pilot 接口层：NDJSON over TCP/UDS 手写帧与分发（刻意不引 jsonrpsee/tarpc），api-schema 命令用 schemars 生成 JSON-Schema"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

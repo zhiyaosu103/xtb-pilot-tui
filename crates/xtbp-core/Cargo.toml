@@ -1,0 +1,27 @@
+[package]
+name = "xtbp-core"
+description = "xTB-Pilot 核心库：组件登记（InstanceRegistry）、配置、ID、哈希与 SQLite/CSV 持久层"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+directories.workspace = true
+shellexpand.workspace = true
+ulid.workspace = true
+semver.workspace = true
+sha2.workspace = true
+which.workspace = true
+sqlx.workspace = true
+csv.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

@@ -1,0 +1,71 @@
+# xTB-Pilot Rust workspace —— 根清单
+# 依赖治理（规划文档 §2.4）：所有版本集中声明于 [workspace.dependencies]，
+# 成员 crate 一律用 { workspace = true } 引用；Cargo.lock 提交入库。
+# 新增依赖必须在 PR 描述中写明理由；CI 跑 cargo deny check 与 cargo audit。
+
+[workspace]
+resolver = "3"
+members = [
+    "crates/xtbp-core",
+    "crates/xtbp-api",
+    "crates/xtbp-tui",
+    "crates/xtbp-daemon",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97.1"
+license = "MIT OR Apache-2.0"
+authors = ["xTB-Pilot Developers"]
+
+# ---------------------------------------------------------------------------
+# §2.2 运行时依赖（按 crate 归属集中声明）
+# ---------------------------------------------------------------------------
+[workspace.dependencies]
+
+# --- 异步与进程 ---
+tokio = { version = "1", features = ["rt-multi-thread", "process", "signal", "time", "sync", "io-util", "net", "macros"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+futures = "0.3"
+
+# --- TUI（仅 xtbp-tui；ratatui/crossterm/tui-input 三者必须同批升级）---
+ratatui = "0.29"
+crossterm = "0.28"
+tui-input = "0.14"
+
+# --- 数据与序列化 ---
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "migrate"] }
+csv = "1"
+sha2 = "0.10"
+ulid = { version = "1", features = ["serde"] }
+semver = { version = "1", features = ["serde"] }
+
+# --- 接口（仅 xtbp-api；刻意不引 jsonrpsee/tarpc，见规划文档 §2.2）---
+schemars = { version = "0.8", features = ["derive"] }
+
+# --- 基础设施 ---
+anyhow = "1"                                          # 仅二进制 crate
+thiserror = "2"                                       # 仅库 crate
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+directories = "6"
+shellexpand = "3"
+which = "7"
+clap = { version = "4.5", features = ["derive"] }
+
+# ---------------------------------------------------------------------------
+# §2.3 开发依赖
+# ---------------------------------------------------------------------------
+insta = "1"                       # 解析器快照测试（xtb/crest/stda 输出 fixtures）
+tempfile = "3"                    # 组装目录 / runner 测试临时目录
+assert_cmd = "2"                  # CLI 端到端测试
+predicates = "3"                  # 同上，输出断言
+# tokio test-util 在需要时间控制测试的成员 crate 的 [dev-dependencies] 中启用
+
+[profile.release]
+lto = "thin"

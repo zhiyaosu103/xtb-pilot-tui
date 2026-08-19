@@ -1,0 +1,21 @@
+# xTB-Pilot 依赖规划文档 v0.2 —— Python 侧环境定义
+# 环境名 xtbp；渠道只用 conda-forge（混渠道是 xtb 家族依赖冲突的主要来源）。
+#
+# P0 实测结论（2025 配置环境时记录）：
+#   mamba search / anaconda.org API 确认：xtb4stda、stda 在 conda-forge 上均无条目。
+#   => 这两个包不放入本文件（否则 env create 会失败），改走回退预案：
+#      从 grimme-lab GitHub Releases 下载预编译二进制，置于 ~/opt/<name>-<ver>/bin，
+#      由 InstanceRegistry 手动登记（见 README.md「xtb4stda / stda 二进制注册」）。
+name: xtbp
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - rdkit>=2024.9      # ETKDG 构型生成 + MMFF/UFF 预优化（conda-forge 最新 2025.03.2）
+  - numpy              # rdkit 依赖，显式声明以便锁定
+  # --- xtb 工具链本体（conda-forge 可用部分）---
+  - xtb>=6.7           # 主引擎（GFN0/1/2-xTB, GFN-FF, ALPB）；conda-forge 最新 6.7.1
+  - crest>=3.0         # 构象搜索；conda-forge 最新 3.0.2
+  # --- 以下两项 conda-forge 无条目，见文件头 P0 结论，走 GitHub 二进制回退 ---
+  # - xtb4stda>=1.0     # sTDA 所需的 GFN 轨道生成（不可用）
+  # - stda>=1.6         # sTDA-xTB 激发态计算（不可用）

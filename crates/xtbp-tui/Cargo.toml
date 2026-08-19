@@ -1,0 +1,26 @@
+[package]
+name = "xtbp-tui"
+description = "xTB-Pilot 终端界面（ratatui 0.29 + crossterm 0.28 + tui-input 0.14）"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "xtbp-tui"
+path = "src/main.rs"
+
+[dependencies]
+ratatui.workspace = true
+crossterm.workspace = true
+tui-input.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+xtbp-core = { path = "../xtbp-core" }
+
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
