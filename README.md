@@ -43,6 +43,27 @@ xtb 6.7.1、crest 3.0.2。锁定文件为 `environment.lock.yml`（`conda env ex
 `https://github.com/grimme-lab/xtb4stda/releases/download/v1.0/xtb4stda`
 `https://github.com/grimme-lab/xtb4stda/releases/download/v1.0/stda_v1.6.1`
 
+**运行所需参数文件**（实测踩坑记录）：xtb4stda 除二进制外还需要两个参数文件，
+缺一不可（只放 `.param_stda1.xtb` 会在建基组时报 `no basis found for atom ... Z=`）：
+`.param_stda1.xtb`（sTDA 参数）与 `.param_stda2.xtb`（vTB 参数）都要放进
+`~/opt/xtb4stda-1.0/`（即 `XTB4STDAHOME` 目录）：
+
+```bash
+curl -sL -o ~/opt/xtb4stda-1.0/.param_stda1.xtb \
+  "https://raw.githubusercontent.com/grimme-lab/xtb4stda/master/.param_stda1.xtb"
+curl -sL -o ~/opt/xtb4stda-1.0/.param_stda2.xtb \
+  "https://raw.githubusercontent.com/grimme-lab/xtb4stda/master/.param_stda2.xtb"
+```
+
+**sTDA 激发态完整流程**（xtb4stda 生成 GFN 轨道 → stda 算激发态）：
+
+```bash
+export XTB4STDAHOME=~/opt/xtb4stda-1.0
+ulimit -s unlimited; export OMP_NUM_THREADS=4 MKL_NUM_THREADS=4
+xtb4stda xtbopt.xyz                 # 生成 wfn.xtb（GFN 轨道）与 stda.in
+~/opt/stda-1.6.1/bin/stda -xtb wfn.xtb   # -xtb 选项读 xtb 轨道，输出 tda.dat
+```
+
 **InstanceRegistry 手动登记流程**（设计文档 §3.2 多版本机制原生支持此路径；
 daemon 以登记表为准拉起子进程，不依赖 PATH 运气）：
 
