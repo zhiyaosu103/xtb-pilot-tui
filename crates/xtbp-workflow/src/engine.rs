@@ -94,6 +94,11 @@ impl WorkflowEngine {
         // 1) gen3d + 组装输入目录（目录即真相）
         let gen_out = gen3d(mol.clone()).await?;
         let job_dir = self.file_repo.job_dir(&job.id);
+        // 工作目录落库（目录即真相 + job.status 可见）
+        if let Some(mut j) = self.store.get_job(&job.id).await.unwrap_or(None) {
+            j.workdir = Some(job_dir.to_string_lossy().into_owned());
+            let _ = self.store.update_job(&j).await;
+        }
         let input_dir = job_dir.join("input");
         let work_dir = job_dir.join("work");
         let output_dir = job_dir.join("output");
@@ -148,7 +153,8 @@ impl WorkflowEngine {
             }
         }
 
-        // 父任务进入运行态
+        // 父任务进入运行态（Draft → Queued → Running）
+        self.transition_job(job.id, JobStatus::Queued).await;
         self.transition_job(job.id, JobStatus::Running).await;
 
         // 3) 事件驱动 DAG 执行
@@ -256,7 +262,9 @@ impl WorkflowEngine {
             .await?
             .ok_or_else(|| WorkflowError::State("任务记录缺失".into()))?;
         if j.transition(JobStatus::Parsing).is_ok() {
-            j.parse_degraded = children.values().any(|c| c.outcome == Some(false));
+            j.parse_degraded = children
+                .values()
+                .any(|c| c.outcome == Some(false) || c.degraded);
             let _ = j.transition(JobStatus::Done);
             let _ = self.store.update_job(&j).await;
             info!(job = %job.id, workflow = %job.workflow, "工作流完成");
@@ -425,31 +433,49 @@ impl WorkflowEngine {
                 StepSettle::HardFail
             });
         }
-        // 结果回收
+        // 结果回收（§4.2：解析失败 ≠ 任务失败——标记 ParseDegraded、保留原始文件）
         let step_dir = work_dir.join(step_key);
         for rule in &state.step.collect {
             let file_path = step_dir.join(&rule.file);
-            let content = std::fs::read_to_string(&file_path).map_err(|_| {
-                WorkflowError::MissingArtifact {
-                    step: step_key.to_string(),
-                    path: file_path.display().to_string(),
+            let content = match std::fs::read_to_string(&file_path) {
+                Ok(c) => c,
+                Err(_) => {
+                    warn!(
+                        job = %job.id,
+                        step = %step_key,
+                        path = %file_path.display(),
+                        "产物缺失（ParseDegraded）"
+                    );
+                    state.degraded = true;
+                    continue;
                 }
-            })?;
-            let parsed = xtbp_parse::parse(&rule.parser, &content)?;
-            for scalar in &parsed.scalars {
-                let key = format!("{}.{}", state.result_prefix, scalar.key);
-                self.store
-                    .put_result(
-                        &job.id,
-                        &ScalarResult {
-                            key,
-                            ..scalar.clone()
-                        },
-                    )
-                    .await?;
-            }
-            if let Some(transitions) = &parsed.transitions {
-                state.transitions = Some(transitions.clone());
+            };
+            match xtbp_parse::parse(&rule.parser, &content) {
+                Ok(parsed) => {
+                    for scalar in &parsed.scalars {
+                        let key = format!("{}.{}", state.result_prefix, scalar.key);
+                        self.store
+                            .put_result(
+                                &job.id,
+                                &ScalarResult {
+                                    key,
+                                    ..scalar.clone()
+                                },
+                            )
+                            .await?;
+                    }
+                    if let Some(transitions) = &parsed.transitions {
+                        state.transitions = Some(transitions.clone());
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        job = %job.id,
+                        step = %step_key,
+                        "解析失败（ParseDegraded）: {e}"
+                    );
+                    state.degraded = true;
+                }
             }
         }
         // 产物登记 + 复制到 output/
@@ -464,6 +490,13 @@ impl WorkflowEngine {
                 let dst = output_dir.join(format!("{step_key}_{out}"));
                 std::fs::copy(&p, &dst)?;
             }
+        }
+        // 子任务终态：Parsing → Done
+        if let Some(child_id) = state.job_id
+            && let Some(mut child) = self.store.get_job(&child_id).await.unwrap_or(None)
+            && child.transition(JobStatus::Done).is_ok()
+        {
+            let _ = self.store.update_job(&child).await;
         }
         Ok(StepSettle::Ok)
     }
@@ -735,6 +768,8 @@ struct ChildState {
     outcome: Option<bool>,
     /// 解析出的跃迁表（excited 用）。
     transitions: Option<Vec<Transition>>,
+    /// 解析降级标记（产物缺失/解析失败，§4.2）。
+    degraded: bool,
     /// 结果键前缀（如 `solv-sp.toluene`）。
     result_prefix: String,
 }
@@ -750,6 +785,7 @@ impl ChildState {
             submitted: false,
             outcome: None,
             transitions: None,
+            degraded: false,
             result_prefix,
         }
     }

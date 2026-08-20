@@ -15,6 +15,11 @@ impl ComponentVersion {
     pub fn new(v: Version) -> Self {
         Self(v)
     }
+
+    /// 未知版本占位（0.0.0，如版本探测失败的组件）。
+    pub fn zero() -> Self {
+        Self(Version::new(0, 0, 0))
+    }
 }
 
 impl FromStr for ComponentVersion {

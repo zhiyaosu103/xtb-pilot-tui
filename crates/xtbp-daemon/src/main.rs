@@ -206,6 +206,13 @@ async fn main() -> Result<()> {
                 {
                     tail.append(&id, line.clone());
                     append_stdout_log(&state, &id, &line).await;
+                    // 子任务输出镜像到父任务（工作流任务整体 tail 视图）
+                    if let Ok(Some(job)) = state.store.get_job(&id).await
+                        && let Some(parent) = job.parent_id
+                    {
+                        tail.append(&parent, line.clone());
+                        append_stdout_log(&state, &parent, &line).await;
+                    }
                 }
             }
         });
@@ -311,17 +318,18 @@ async fn append_stdout_log(state: &AppState, job_id: &xtbp_core::Ulid, line: &st
 // ---------------------------------------------------------------------------
 
 fn resolve_token(cli_token: &str) -> Result<String> {
-    if !cli_token.is_empty() {
-        return Ok(cli_token.to_string());
-    }
     let dir = PathBuf::from(expand_tilde("~/.xtbpilot"));
     std::fs::create_dir_all(&dir)?;
     let path = dir.join("agent.json");
-    if let Some(t) = read_token_from_agent_json(&path) {
-        return Ok(t);
-    }
-    // 生成并落盘（Windows 侧经 `wsl cat` 或 \\wsl$ 读取实现自发现）
-    let token = format!("xtbp-{:016x}", now_unix());
+    // CLI 显式 token 优先；否则读 agent.json；再否则生成新 token
+    let token = if !cli_token.is_empty() {
+        cli_token.to_string()
+    } else if let Some(t) = read_token_from_agent_json(&path) {
+        t
+    } else {
+        format!("xtbp-{:016x}", now_unix())
+    };
+    // 一律落盘：Windows 侧经 `wsl cat` 或 \\wsl$ 读取实现自发现
     let agent_json = serde_json::json!({
         "protocol": "xtbp-jsonrpc-v1",
         "url": "127.0.0.1:7700",
@@ -330,7 +338,7 @@ fn resolve_token(cli_token: &str) -> Result<String> {
         "note": "Windows agent 直连 localhost:7700（WSL2 localhostForwarding），每个请求带顶层 token 字段",
     });
     std::fs::write(&path, serde_json::to_string_pretty(&agent_json)?)?;
-    info!(path = %path.display(), "token 已生成并写入 agent.json");
+    info!(path = %path.display(), "agent.json 已写入");
     Ok(token)
 }
 
@@ -363,20 +371,25 @@ fn load_or_discover_registry(path: &Path) -> Result<InstanceRegistry> {
         if reg.latest(name).is_none()
             && let Some(exe) = find_component(name)
         {
-            match probe_version(&exe) {
-                Some(version) => match reg.register(name, version, exe.clone()) {
-                    Ok(entry) => {
-                        info!(
-                            name,
-                            exe = %exe.display(),
-                            version = %entry.version,
-                            "组件已登记"
-                        );
-                        changed = true;
-                    }
-                    Err(e) => warn!(name, "登记失败: {e}"),
-                },
-                None => warn!(name, exe = %exe.display(), "版本探测失败，跳过"),
+            // 版本探测失败（如 xtb4stda 只打 banner）→ 登记 0.0.0，仍可用
+            let version = match probe_version(&exe) {
+                Some(v) => v,
+                None => {
+                    warn!(name, exe = %exe.display(), "版本探测失败，登记为 0.0.0");
+                    ComponentVersion::zero()
+                }
+            };
+            match reg.register(name, version, exe.clone()) {
+                Ok(entry) => {
+                    info!(
+                        name,
+                        exe = %exe.display(),
+                        version = %entry.version,
+                        "组件已登记"
+                    );
+                    changed = true;
+                }
+                Err(e) => warn!(name, "登记失败: {e}"),
             }
         }
     }

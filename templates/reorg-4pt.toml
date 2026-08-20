@@ -14,34 +14,34 @@ outputs = ["mol.xyz"]
 id = "opt-neutral"
 component = "xtb"
 depends_on = ["gen3d"]
-command = ["xtb", "{input_xyz}", "--opt", "tight", "--chrg", "0", "--uhf", "1", "{method_flags}"]
+command = ["xtb", "{input_xyz}", "--opt", "tight", "--json", "--chrg", "0", "--uhf", "1", "{method_flags}"]
 inputs = ["mol.xyz"]
-outputs = ["xtbopt.xyz", "xtb.out"]
-collect = [{ file = "xtb.out", parser = "xtb-json" }]
+outputs = ["xtbopt.xyz", "xtbout.json"]
+collect = [{ file = "xtbout.json", parser = "xtb-json" }]
 
 [[steps]]
 id = "opt-ion"
 component = "xtb"
 depends_on = ["gen3d"]
-command = ["xtb", "{input_xyz}", "--opt", "tight", "--chrg", "1", "--uhf", "2", "{method_flags}"]
+command = ["xtb", "{input_xyz}", "--opt", "tight", "--json", "--chrg", "1", "--uhf", "2", "{method_flags}"]
 inputs = ["mol.xyz"]
-outputs = ["xtbopt.xyz", "xtb.out"]
-collect = [{ file = "xtb.out", parser = "xtb-json" }]
+outputs = ["xtbopt.xyz", "xtbout.json"]
+collect = [{ file = "xtbout.json", parser = "xtb-json" }]
 
 [[steps]]
 id = "sp-ion-at-neutral"
 component = "xtb"
 depends_on = ["opt-neutral", "opt-ion"]
-command = ["xtb", "{input_xyz}", "--sp", "--chrg", "1", "--uhf", "2", "{method_flags}"]
+command = ["xtb", "{input_xyz}", "--sp", "--json", "--chrg", "1", "--uhf", "2", "{method_flags}"]
 inputs = ["opt-neutral:xtbopt.xyz"]
-outputs = ["xtb.out"]
-collect = [{ file = "xtb.out", parser = "xtb-json" }]
+outputs = ["xtbout.json"]
+collect = [{ file = "xtbout.json", parser = "xtb-json" }]
 
 [[steps]]
 id = "sp-neutral-at-ion"
 component = "xtb"
 depends_on = ["opt-neutral", "opt-ion"]
-command = ["xtb", "{input_xyz}", "--sp", "--chrg", "0", "--uhf", "1", "{method_flags}"]
+command = ["xtb", "{input_xyz}", "--sp", "--json", "--chrg", "0", "--uhf", "1", "{method_flags}"]
 inputs = ["opt-ion:xtbopt.xyz"]
-outputs = ["xtb.out"]
-collect = [{ file = "xtb.out", parser = "xtb-json" }]
+outputs = ["xtbout.json"]
+collect = [{ file = "xtbout.json", parser = "xtb-json" }]

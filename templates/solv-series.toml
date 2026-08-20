@@ -14,7 +14,7 @@ outputs = ["mol.xyz"]
 id = "solv-sp"
 component = "xtb"
 depends_on = ["gen3d"]
-command = ["xtb", "{input_xyz}", "--sp", "--chrg", "{charge}", "--uhf", "{mult}", "--alpb", "{solvent}"]
+command = ["xtb", "{input_xyz}", "--sp", "--json", "--chrg", "{charge}", "--uhf", "{mult}", "--alpb", "{solvent}"]
 inputs = ["mol.xyz"]
-outputs = ["xtb.out"]
-collect = [{ file = "xtb.out", parser = "xtb-json" }]
+outputs = ["xtbout.json"]
+collect = [{ file = "xtbout.json", parser = "xtb-json" }]

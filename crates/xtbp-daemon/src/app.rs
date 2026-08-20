@@ -48,12 +48,11 @@ pub fn registry_resolver(
 ) -> xtbp_workflow::ComponentResolver {
     let envs: BTreeMap<&str, BTreeMap<String, String>> = {
         let mut m = BTreeMap::new();
-        // xtb4stda 需要 XTB4STDAHOME（参数文件目录，见 README）
+        // xtb4stda 需要 XTB4STDAHOME（参数文件目录，见 README）；stda 同源
         if let Ok(home) = std::env::var("XTB4STDAHOME") {
-            m.insert(
-                "xtb4stda",
-                BTreeMap::from([("XTB4STDAHOME".to_string(), home)]),
-            );
+            let env = BTreeMap::from([("XTB4STDAHOME".to_string(), home)]);
+            m.insert("xtb4stda", env.clone());
+            m.insert("stda", env);
         }
         m
     };
@@ -164,9 +163,11 @@ impl AppState {
     async fn mol_create(&self, params: &Value) -> std::result::Result<Value, ApiError> {
         let p: MolCreateParams = Self::parse(params)?;
         let mult = Multiplicity::new(p.multiplicity).map_err(ApiError::invalid_params)?;
-        let mol = Molecule::new(&p.smiles, Charge(p.charge), mult, now_unix());
+        let mut mol = Molecule::new(&p.smiles, Charge(p.charge), mult, now_unix());
         // 组装阶段校验 SMILES 有效性：dry-run 一次 gen3d（失败 → RDKIT_INVALID_SMILES）
-        gen3d_via_helper(&self.helper, &mol.smiles, mol.charge.0, mol.multiplicity.0).await?;
+        let gen_out =
+            gen3d_via_helper(&self.helper, &mol.smiles, mol.charge.0, mol.multiplicity.0).await?;
+        mol.inchikey = gen_out.inchikey;
         let kept = self.store.ensure_molecule(&mol).await.map_err(store_err)?;
         Ok(molecule_json(&kept))
     }
@@ -236,9 +237,11 @@ impl AppState {
         // 参数合并：请求 params 覆盖模板默认（模板级默认 nconf 等由 extra 承载）
         let job_params = p.params;
 
-        // 内容哈希（幂等：重试不产生重复计算）
+        // 内容哈希（幂等：重试不产生重复计算）。
+        // 键用 SMILES 而非 inchikey：inchikey 会在运行中回填，
+        // 若用它会破坏「提交 → 回填 → 重复提交」的哈希稳定性。
         let payload = json!({
-            "inchikey_or_smiles": if mol.inchikey.is_empty() { &mol.smiles } else { &mol.inchikey },
+            "smiles": &mol.smiles,
             "workflow": &p.workflow,
             "params": &job_params,
         });

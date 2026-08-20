@@ -246,7 +246,7 @@ pub struct JobSubmitParams {
     #[serde(default)]
     pub charge: i8,
     /// 多重度（仅 smiles 路径）。
-    #[serde(default)]
+    #[serde(default = "default_multiplicity")]
     pub multiplicity: u8,
     /// 工作流模板 id（opt / conformer / opt-freq / excited / redox /
     /// reorg-4pt / solv-series）。
@@ -260,6 +260,11 @@ pub struct JobSubmitParams {
     /// dry-run：只校验并返回组装预览，不入队。
     #[serde(default)]
     pub dry_run: bool,
+}
+
+/// 多重度缺省（单重态）。
+fn default_multiplicity() -> u8 {
+    1
 }
 
 /// job.status / wf.status 参数。
