@@ -3,26 +3,33 @@
 //! - tokio 多线程运行时（唯一运行时）；
 //! - `tokio-util::sync::CancellationToken` 优雅停机（Ctrl-C 或信号）；
 //! - `tracing-subscriber` fmt + `tracing-appender` 按日滚动 per-job 日志；
-//! - NDJSON over TCP 接口（`xtbp-api`），Ping/Submit/Status 骨架；
-//! - 子进程经 InstanceRegistry 登记路径拉起（不依赖 PATH 运气）。
+//! - NDJSON over TCP 接口（`xtbp-api`），骨架 handler（后续里程碑装配
+//!   调度器/工作流/RDKit helper）。
 
 use anyhow::Result;
 use clap::Parser;
 use std::path::PathBuf;
-use tokio::io::BufReader;
-use tokio::net::{TcpListener, TcpStream};
+use std::sync::Arc;
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
-use xtbp_api::protocol::{Request, Response};
-use xtbp_api::{Handler, frame};
+use xtbp_api::protocol::{ApiError, ApiHandler, methods};
+use xtbp_api::{EventBus, ServerConfig, serve_tcp};
 
 #[derive(Parser, Debug)]
 #[command(name = "xtbp-daemon", version, about = "xTB-Pilot 常驻守护进程")]
 struct Args {
-    /// 监听地址（NDJSON over TCP）
-    #[arg(long, default_value = "127.0.0.1:0")]
+    /// 监听地址（NDJSON over TCP，agent 接口）
+    #[arg(long, default_value = "127.0.0.1:7700")]
     listen: String,
+
+    /// TUI 的 UDS 路径（空 = 不启用）
+    #[arg(long, default_value = "~/.local/share/xtbpilot/xtbp.sock")]
+    uds: String,
+
+    /// 鉴权 token（空 = 不鉴权，仅限开发）
+    #[arg(long, default_value = "")]
+    token: String,
 
     /// InstanceRegistry 登记表路径
     #[arg(long, default_value = "~/.local/share/xtbpilot/registry.toml")]
@@ -33,20 +40,22 @@ struct Args {
     log_dir: String,
 }
 
-/// 协议 handler（骨架：Ping 即回，其余提示未实现）。
+/// 协议 handler（骨架：sys.health 即回，其余提示未实现）。
 #[derive(Default)]
-struct ApiHandler;
+struct ApiHandlerImpl;
 
-impl Handler for ApiHandler {
-    async fn handle(&self, req: Request) -> Response {
-        match req {
-            Request::Ping => Response::Ok {
-                job_id: String::new(),
-                data: serde_json::json!({ "pong": true, "daemon": env!("CARGO_PKG_VERSION") }),
-            },
-            other => Response::Err {
-                message: format!("未实现的方法: {other:?}"),
-            },
+impl ApiHandler for ApiHandlerImpl {
+    async fn handle(
+        &self,
+        method: &str,
+        _params: serde_json::Value,
+    ) -> std::result::Result<serde_json::Value, ApiError> {
+        match method {
+            methods::SYS_HEALTH => Ok(serde_json::json!({
+                "ok": true,
+                "daemon": env!("CARGO_PKG_VERSION"),
+            })),
+            other => Err(ApiError::method_not_found(other)),
         }
     }
 }
@@ -70,57 +79,54 @@ async fn main() -> Result<()> {
         });
     }
 
-    let listener = TcpListener::bind(&args.listen).await?;
-    info!("监听于 {}", listener.local_addr()?);
+    let listener = tokio::net::TcpListener::bind(&args.listen).await?;
+    info!("TCP 监听于 {}", listener.local_addr()?);
 
-    let handler = std::sync::Arc::new(ApiHandler);
-    loop {
-        tokio::select! {
-            _ = token.cancelled() => {
-                info!("优雅停机完成");
-                break;
-            }
-            accepted = listener.accept() => {
-                match accepted {
-                    Ok((stream, peer)) => {
-                        let token = token.clone();
-                        let handler = std::sync::Arc::clone(&handler);
-                        tokio::spawn(async move {
-                            if let Err(e) = serve(stream, handler, token).await {
-                                error!(peer = %peer, "连接处理失败: {e:#}");
-                            }
-                        });
-                    }
-                    Err(e) => error!("accept 失败: {e}"),
-                }
-            }
+    let bus = EventBus::new(4096);
+    let config = Arc::new(ServerConfig {
+        token: args.token,
+        event_bus: bus,
+    });
+    let handler = Arc::new(ApiHandlerImpl);
+
+    let tcp_task = tokio::spawn(serve_tcp(
+        listener,
+        Arc::clone(&handler),
+        Arc::clone(&config),
+        token.clone(),
+    ));
+
+    // UDS（TUI 接口）：路径展开 + 清理陈旧 socket
+    let uds_path = PathBuf::from(xtbp_core::config::expand_tilde(&args.uds));
+    let mut uds_task = None;
+    if let Some(parent) = uds_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    if uds_path.exists() {
+        std::fs::remove_file(&uds_path)?;
+    }
+    match tokio::net::UnixListener::bind(&uds_path) {
+        Ok(uds_listener) => {
+            info!("UDS 监听于 {}", uds_path.display());
+            uds_task = Some(tokio::spawn(xtbp_api::serve_uds(
+                uds_listener,
+                handler,
+                config,
+                token.clone(),
+            )));
         }
+        Err(e) => warn!("UDS 绑定失败（TUI 将不可用）: {e}"),
+    }
+
+    token.cancelled().await;
+    info!("优雅停机完成");
+    if let Some(t) = uds_task {
+        let _ = t.await;
+    }
+    if let Err(e) = tcp_task.await {
+        error!("TCP 服务退出异常: {e}");
     }
     Ok(())
-}
-
-/// 处理单个连接：逐帧读取 NDJSON 请求并应答。
-async fn serve(
-    stream: TcpStream,
-    handler: std::sync::Arc<ApiHandler>,
-    token: CancellationToken,
-) -> std::io::Result<()> {
-    let (read_half, mut write_half) = stream.into_split();
-    let mut reader = BufReader::new(read_half);
-    loop {
-        tokio::select! {
-            _ = token.cancelled() => return Ok(()),
-            msg = frame::read_frame::<_, Request>(&mut reader) => {
-                match msg? {
-                    None => return Ok(()), // 对端关闭
-                    Some(req) => {
-                        let resp = handler.handle(req).await;
-                        frame::write_frame(&mut write_half, &resp).await?;
-                    }
-                }
-            }
-        }
-    }
 }
 
 /// 初始化日志：控制台 fmt + 按日滚动的文件 appender。
@@ -130,7 +136,7 @@ fn init_tracing(log_dir: &str) -> Result<()> {
     let file_appender = tracing_appender::rolling::daily(&dir, "daemon.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
     tracing_subscriber::fmt()
-        .with_env_filter("xtbp_daemon=info")
+        .with_env_filter("xtbp_daemon=info,xtbp_api=info")
         .with_writer(non_blocking)
         .init();
     // `_guard` 需存活到进程结束：泄漏以保持 appender 工作
@@ -138,40 +144,15 @@ fn init_tracing(log_dir: &str) -> Result<()> {
     Ok(())
 }
 
-/// 心跳流示例（规划文档 §2.2：futures 流组合）。
-pub fn heartbeat_stream() -> impl futures::Stream<Item = u64> {
-    futures::stream::iter(0u64..)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::StreamExt;
-
-    #[tokio::test(start_paused = true)]
-    async fn heartbeat_stream_yields_sequence() {
-        let mut s = heartbeat_stream();
-        assert_eq!(s.next().await, Some(0));
-        assert_eq!(s.next().await, Some(1));
-        assert_eq!(s.next().await, Some(2));
-    }
-
-    #[tokio::test]
-    async fn cancellation_token_cancels() {
-        let token = CancellationToken::new();
-        let child = token.clone();
-        let handle = tokio::spawn(async move {
-            child.cancelled().await;
-            42
-        });
-        token.cancel();
-        assert_eq!(handle.await.unwrap(), 42);
-    }
 
     #[test]
     fn cli_parses_defaults() {
         let args = Args::try_parse_from(["xtbp-daemon"]).unwrap();
         assert_eq!(args.registry, "~/.local/share/xtbpilot/registry.toml");
-        assert!(args.listen.contains("127.0.0.1"));
+        assert!(args.listen.contains("7700"));
+        assert!(args.uds.contains("xtbp.sock"));
     }
 }

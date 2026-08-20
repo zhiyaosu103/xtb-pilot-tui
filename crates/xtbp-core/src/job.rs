@@ -7,12 +7,13 @@
 use crate::id::Ulid;
 use crate::method::Method;
 use crate::time::now_unix;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
 /// Job 状态。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum JobStatus {
     /// 草稿（已入库、未入队）。
@@ -101,13 +102,65 @@ pub mod error_codes {
     pub const TIMEOUT: &str = "TIMEOUT";
     /// 解析降级（结果可能缺失）。
     pub const PARSE_DEGRADED: &str = "PARSE_DEGRADED";
+    /// 任务不存在。
+    pub const JOB_NOT_FOUND: &str = "JOB_NOT_FOUND";
+    /// 鉴权失败。
+    pub const AUTH_FAILED: &str = "AUTH_FAILED";
+    /// 无效参数。
+    pub const INVALID_PARAMS: &str = "INVALID_PARAMS";
+}
+
+/// 任务事件（订阅推送：`job.events`，设计文档 §3.7）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum JobEvent {
+    /// 入队。
+    Queued {
+        /// 任务 id。
+        job_id: String,
+    },
+    /// 开始运行。
+    Started {
+        /// 任务 id。
+        job_id: String,
+    },
+    /// 输出增量（stdout 一行）。
+    Output {
+        /// 任务 id。
+        job_id: String,
+        /// 行内容。
+        line: String,
+    },
+    /// 状态变化（通用）。
+    Status {
+        /// 任务 id。
+        job_id: String,
+        /// 新状态。
+        status: String,
+    },
+    /// 完成。
+    Finished {
+        /// 任务 id。
+        job_id: String,
+        /// 是否成功。
+        ok: bool,
+        /// 结构化错误码（失败时）。
+        error_code: Option<String>,
+    },
+    /// 队列深度变化。
+    QueueDepth {
+        /// 排队中的任务数。
+        queued: usize,
+        /// 运行中的任务数。
+        running: usize,
+    },
 }
 
 /// 单任务参数快照（组装进 job.toml，§3.1）。
 ///
 /// 同一 (inchikey, 方法, 参数, 组件版本) 组合哈希为 `content_hash`，
 /// 重复提交命中缓存直接复用结果（幂等）。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct JobParams {
     /// 计算方法。

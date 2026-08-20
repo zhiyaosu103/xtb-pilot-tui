@@ -2820,9 +2820,12 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
  "tokio",
+ "tokio-util",
  "tracing",
+ "xtbp-core",
 ]
 
 [[package]]
@@ -2844,6 +2847,7 @@ version = "0.1.0"
 dependencies = [
  "directories",
  "insta",
+ "schemars",
  "semver",
  "serde",
  "serde_json",

@@ -18,6 +18,7 @@ semver.workspace = true
 sha2.workspace = true
 which.workspace = true
 tracing.workspace = true
+schemars.workspace = true
 
 [dev-dependencies]
 insta.workspace = true

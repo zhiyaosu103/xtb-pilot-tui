@@ -3,10 +3,11 @@
 //! 方法预设（如 `gfn2+alpb(toluene)`）以 TOML 集中管理；
 //! 命令行 flag 由 [`Method::xtb_flags`] 单点生成，不散落各处。
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// 计算级别（组件族）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum MethodFamily {
     /// GFN0-xTB。
@@ -38,12 +39,12 @@ impl MethodFamily {
 }
 
 /// 隐式溶剂（ALPB）。
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(transparent)]
 pub struct Solvent(pub String);
 
 /// 计算方法：族 + 可选溶剂。
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub struct Method {
     /// 计算级别。
     pub family: MethodFamily,
