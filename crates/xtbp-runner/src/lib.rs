@@ -175,27 +175,28 @@ where
     let (line_tx, mut line_rx) = tokio::sync::mpsc::unbounded_channel::<Line>();
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
+    let mut pumps = Vec::new();
     if let Some(pipe) = stdout {
         let line_tx = line_tx.clone();
-        tokio::spawn(async move {
+        pumps.push(tokio::spawn(async move {
             let mut reader = BufReader::new(pipe).lines();
             while let Ok(Some(line)) = reader.next_line().await {
                 if line_tx.send(Line::Out { text: line }).is_err() {
                     break;
                 }
             }
-        });
+        }));
     }
     if let Some(pipe) = stderr {
         let line_tx = line_tx.clone();
-        tokio::spawn(async move {
+        pumps.push(tokio::spawn(async move {
             let mut reader = BufReader::new(pipe).lines();
             while let Ok(Some(line)) = reader.next_line().await {
                 if line_tx.send(Line::Err { text: line }).is_err() {
                     break;
                 }
             }
-        });
+        }));
     }
     drop(line_tx);
 
@@ -273,7 +274,15 @@ where
         }
     }
 
-    // 排空残余行（子进程退出后管道内可能还有缓冲）
+    // 收口：有界等待泵排空管道（子进程已退出/kill，管道随即 EOF，正常微秒级完成）。
+    // 之前此处直接 try_recv 排空——泵任务可能尚未被调度，子进程退出瞬间的最后几行
+    // 会竞态丢失（CI 低核高争用实测必现：stderr 尾行 / 单行 stdout 丢失）。
+    // 有界等待：子进程退出但孙进程仍持有管道 fd（如 `sleep 30 & exit 0`）时泵会
+    // 阻塞到 EOF，不能无限等。
+    for pump in pumps {
+        let _ = tokio::time::timeout(Duration::from_secs(2), pump).await;
+    }
+    // 排空残余行（泵已收口，此刻能取到的即全部行）
     while let Ok(line) = line_rx.try_recv() {
         if matches!(line, Line::Err { .. }) {
             push_tail(&mut stderr_tail, line.text());
