@@ -132,18 +132,26 @@ pub fn extract_energies(lines: &[(u64, String)]) -> Vec<f64> {
         .collect()
 }
 
-/// 唤起 Windows 侧查看器（设计文档 §3.6：`o` 键，经 interop cmd.exe）。
-/// `wslpath -w` 转 Windows 路径后 `cmd.exe /c start`。
+/// 唤起外部查看器（`o` 键）：
+/// WSL 环境经 interop 调用 Windows 侧默认程序（cmd.exe /c start）；
+/// 原生 Linux 回退 `xdg-open`，两者皆不可用时返回错误（仅显示到状态行）。
 pub fn open_external_viewer(path: &str) -> Result<(), String> {
-    let win_path = std::process::Command::new("wslpath")
+    if let Ok(out) = std::process::Command::new("wslpath")
         .arg("-w")
         .arg(path)
         .output()
-        .map_err(|e| format!("wslpath 失败: {e}"))?;
-    let win_path = String::from_utf8_lossy(&win_path.stdout).trim().to_string();
-    let mut cmd = std::process::Command::new("/mnt/c/Windows/System32/cmd.exe");
-    cmd.arg("/c").arg("start").arg("").arg(&win_path);
-    cmd.spawn().map_err(|e| format!("启动查看器失败: {e}"))?;
+        && out.status.success()
+    {
+        let win_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let mut cmd = std::process::Command::new("/mnt/c/Windows/System32/cmd.exe");
+        cmd.arg("/c").arg("start").arg("").arg(&win_path);
+        cmd.spawn().map_err(|e| format!("启动查看器失败: {e}"))?;
+        return Ok(());
+    }
+    let mut cmd = std::process::Command::new("xdg-open");
+    cmd.arg(path);
+    cmd.spawn()
+        .map_err(|e| format!("xdg-open 启动失败（未安装？）: {e}"))?;
     Ok(())
 }
 

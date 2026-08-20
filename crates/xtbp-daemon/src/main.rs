@@ -108,10 +108,10 @@ async fn main() -> Result<()> {
     std::fs::create_dir_all(&data_dir)?;
     let log_dir = PathBuf::from(expand_tilde(&args.log_dir));
     std::fs::create_dir_all(&log_dir)?;
-    let templates_dir = if args.templates_dir.is_empty() {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../templates")
-    } else {
+    let templates_dir = if !args.templates_dir.is_empty() {
         PathBuf::from(expand_tilde(&args.templates_dir))
+    } else {
+        resolve_templates_dir()
     };
 
     init_tracing(&log_dir)?;
@@ -378,6 +378,29 @@ async fn append_stdout_log(state: &AppState, job_id: &xtbp_core::Ulid, line: &st
     {
         let _ = writeln!(f, "{line}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// 模板目录解析
+// ---------------------------------------------------------------------------
+
+/// 工作流模板目录：显式 `--templates-dir` 优先；其次用户级安装目录
+/// `$XDG_DATA_HOME/xtbpilot/templates`（install.sh / 预编译包落位于此）；
+/// 最后回退构建期仓库路径（开发模式）。安装版 daemon 不再依赖源码目录存活。
+fn resolve_templates_dir() -> PathBuf {
+    let user_dir = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            std::env::var_os("HOME")
+                .map(|h| Path::new(&h).join(".local/share"))
+                .unwrap_or_default()
+        })
+        .join("xtbpilot/templates");
+    if user_dir.is_dir() {
+        info!(path = %user_dir.display(), "使用用户级模板目录");
+        return user_dir;
+    }
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../templates")
 }
 
 // ---------------------------------------------------------------------------
