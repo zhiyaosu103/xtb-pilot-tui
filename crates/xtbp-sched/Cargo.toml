@@ -8,11 +8,15 @@ license.workspace = true
 
 [dependencies]
 tokio.workspace = true
-futures.workspace = true
+tokio-util.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 serde.workspace = true
 xtbp-core = { path = "../xtbp-core" }
+xtbp-store = { path = "../xtbp-store" }
+xtbp-runner = { path = "../xtbp-runner" }
+xtbp-api = { path = "../xtbp-api" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
+tempfile.workspace = true

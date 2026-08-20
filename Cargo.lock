@@ -2910,12 +2910,16 @@ dependencies = [
 name = "xtbp-sched"
 version = "0.1.0"
 dependencies = [
- "futures",
  "serde",
+ "tempfile",
  "thiserror",
  "tokio",
+ "tokio-util",
  "tracing",
+ "xtbp-api",
  "xtbp-core",
+ "xtbp-runner",
+ "xtbp-store",
 ]
 
 [[package]]
