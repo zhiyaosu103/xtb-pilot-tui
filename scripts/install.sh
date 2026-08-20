@@ -15,6 +15,12 @@ cp target/release/xtbp-tui "$BIN_DIR/"
 cp target/release/xtbp-daemon "$BIN_DIR/"
 chmod +x "$BIN_DIR/xtbp-tui" "$BIN_DIR/xtbp-daemon"
 
+echo "==> 安装工作流模板到用户级目录"
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+TPL_DIR="$DATA_HOME/xtbpilot/templates"
+mkdir -p "$TPL_DIR"
+cp templates/*.toml "$TPL_DIR/"
+
 echo "==> 完成"
 "$BIN_DIR/xtbp-tui" --version
 echo "现在可以在任意目录直接输入: xtbp-tui"
@@ -28,3 +34,9 @@ EOF
 else
     echo "（$BIN_DIR 已在 PATH 中，无需额外配置）"
 fi
+
+cat <<EOF
+
+可选组件（excited 工作流需要 xtb4stda / stda + 参数文件）：
+    ./scripts/install-components.sh
+EOF

@@ -463,7 +463,7 @@ async fn handle_key(model: &mut AppModel, client: Option<&mut Client<UnixStream>
                 if let Err(e) = chem::open_external_viewer(p) {
                     model.status_line = e;
                 } else {
-                    model.status_line = format!("已在 Windows 侧打开: {p}");
+                    model.status_line = format!("已在外部查看器打开: {p}");
                 }
             }
         }

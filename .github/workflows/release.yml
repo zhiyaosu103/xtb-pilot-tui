@@ -1,0 +1,44 @@
+name: Release
+
+# 痛点修复：为一般 Linux 用户提供预编译二进制（tag 形如 v0.1.0 时触发）。
+# 产物 xtbpilot-linux-x86_64.tar.gz：bin/{xtbp-tui,xtbp-daemon} + templates/。
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Release (Linux x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.97.1
+
+      - name: Build release binaries
+        run: cargo build --release -p xtbp-tui -p xtbp-daemon
+
+      - name: Assemble tarball
+        run: |
+          mkdir -p dist/bin
+          cp target/release/xtbp-tui target/release/xtbp-daemon dist/bin/
+          cp -r templates dist/templates
+          tar -czf xtbpilot-linux-x86_64.tar.gz -C dist bin templates
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" xtbpilot-linux-x86_64.tar.gz \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "xTB-Pilot $GITHUB_REF_NAME" \
+            --notes "Prebuilt Linux x86_64 binaries (xtbp-tui + xtbp-daemon) with workflow templates.
+
+Install:
+  tar -xzf xtbpilot-linux-x86_64.tar.gz
+  cp -r bin/. ~/.local/bin/
+  mkdir -p ~/.local/share/xtbpilot && cp -r templates ~/.local/share/xtbpilot/"

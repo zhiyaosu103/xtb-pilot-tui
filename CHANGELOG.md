@@ -60,11 +60,22 @@
 - Ctrl-C 递归全链退出（`sys.shutdown` RPC + helper 进程组清理）；
 - runner 监督循环竞态：子进程退出瞬间的最后输出行丢失——泵任务尚未被调度时
   直接 `try_recv` 排空所致（CI 低核高争用实测必现），改为有界等待泵收口后再排空。
+- 原生 Linux 上 `o` 键查看器不可用：WSL interop 路径失败时降级 `xdg-open`。
 
 ### Changed
 
 - 批处理演练脚本以 store 轮询为准，修正报告键名；
 - 引擎测试引入临时目录守卫。
+- README 改为英文主文档 + `README.zh-CN.md` 中文副文档，GitHub 主页语言切换；
+  设计决策与里程碑验收归档至 `docs/architecture-and-design-notes.md`。
+
+### Added
+
+- `.github/workflows/release.yml`：tag 触发构建 Linux x86_64 预编译包并发布
+  GitHub Release（`bin/{xtbp-tui,xtbp-daemon}` + `templates/`）；
+- `scripts/install-components.sh`：一键下载 xtb4stda / stda 二进制与参数文件；
+- `install.sh` 与 daemon 模板目录解析：工作流模板落位
+  `$XDG_DATA_HOME/xtbpilot/templates`，安装版不再依赖构建目录存活。
 
 ## 开发红线（每次提交前）
 
