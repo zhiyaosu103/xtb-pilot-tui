@@ -22,6 +22,7 @@ clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 csv.workspace = true
+zip.workspace = true
 which.workspace = true
 xtbp-core = { path = "../xtbp-core" }
 xtbp-store = { path = "../xtbp-store" }

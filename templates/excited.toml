@@ -23,7 +23,7 @@ id = "orbitals"
 component = "xtb4stda"
 depends_on = ["opt"]
 command = ["xtb4stda", "{input_xyz}"]
-inputs = ["xtbopt.xyz"]
+inputs = ["opt:xtbopt.xyz"]
 outputs = ["wfn.xtb", "stda.in"]
 
 [[steps]]
@@ -31,6 +31,6 @@ id = "stda"
 component = "stda"
 depends_on = ["orbitals"]
 command = ["stda", "-xtb", "wfn.xtb"]
-inputs = ["wfn.xtb"]
+inputs = ["orbitals:wfn.xtb"]
 outputs = ["tda.dat"]
 collect = [{ file = "tda.dat", parser = "tda-dat" }]

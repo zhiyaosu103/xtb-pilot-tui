@@ -50,6 +50,7 @@ csv = "1"
 sha2 = "0.10"
 ulid = { version = "1", features = ["serde"] }
 semver = { version = "1", features = ["serde"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 # --- 接口（仅 xtbp-api；刻意不引 jsonrpsee/tarpc，见规划文档 §2.2）---
 schemars = { version = "0.8", features = ["derive"] }

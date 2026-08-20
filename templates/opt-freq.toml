@@ -22,6 +22,6 @@ id = "freq"
 component = "xtb"
 depends_on = ["opt"]
 command = ["xtb", "{input_xyz}", "--ohess", "--json", "--chrg", "{charge}", "--uhf", "{mult}"]
-inputs = ["xtbopt.xyz"]
+inputs = ["opt:xtbopt.xyz"]
 outputs = ["xtbout.json"]
 collect = [{ file = "xtbout.json", parser = "xtb-json" }]

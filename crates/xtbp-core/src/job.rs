@@ -60,10 +60,10 @@ impl JobStatus {
         matches!(
             (self, next),
             (Draft, Queued | Cancelled)
-                | (Queued, Running | Cancelled)
+                | (Queued, Running | Cancelled | Interrupted) // 崩溃恢复：队列中任务标记中断
                 | (Running, Parsing | Failed | Cancelled | Interrupted)
                 | (Parsing, Done | Failed)
-                | (Interrupted, Queued) // 续算重新入队
+                | (Interrupted, Queued | Cancelled) // 续算重新入队 / 放弃取消
         )
     }
 }

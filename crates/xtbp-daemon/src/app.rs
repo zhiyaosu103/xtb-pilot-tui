@@ -513,6 +513,24 @@ impl AppState {
                 .map_err(io_err)?;
                 written.push(path);
             }
+            "zip" => {
+                // 单分子全链路打包：任务目录（input/ output/ stdout.log）+ 汇总 JSON
+                for job in &jobs {
+                    let results = self
+                        .store
+                        .results_for_job(&job.id)
+                        .await
+                        .map_err(store_err)?;
+                    let spectra = self
+                        .store
+                        .spectrum_for_job(&job.id, "stda-gaussian")
+                        .await
+                        .map_err(store_err)?;
+                    let path = out_dir.join(format!("job-{}-{stamp}.zip", job.id));
+                    write_job_zip(&path, job, &results, &spectra)?;
+                    written.push(path);
+                }
+            }
             other => return Err(ApiError::invalid_params(format!("未知导出格式: {other}"))),
         }
         Ok(json!({
@@ -655,6 +673,85 @@ fn io_err(e: std::io::Error) -> ApiError {
 
 fn csv_err(e: csv::Error) -> ApiError {
     ApiError::internal(format!("CSV 错误: {e}"))
+}
+
+/// 任务全链路 zip 打包（§3.5 导出：目录即真相的整体快照）。
+fn write_job_zip(
+    path: &std::path::Path,
+    job: &Job,
+    results: &[xtbp_core::ScalarResult],
+    spectra: &Option<xtbp_core::Spectrum>,
+) -> std::result::Result<(), ApiError> {
+    use std::io::Write as _;
+    let file = std::fs::File::create(path).map_err(io_err)?;
+    let mut zipw = zip::ZipWriter::new(file);
+    let opts: zip::write::SimpleFileOptions = zip::write::SimpleFileOptions::default();
+
+    // 汇总 JSON
+    let summary = json!({
+        "job": job_json(job),
+        "results": results,
+        "spectrum": spectra,
+    });
+    zipw.start_file("summary.json", opts).map_err(zip_err)?;
+    zipw.write_all(
+        serde_json::to_string_pretty(&summary)
+            .map_err(|e| ApiError::internal(e.to_string()))?
+            .as_bytes(),
+    )
+    .map_err(io_err)?;
+
+    // 任务目录（input/ output/ 与 stdout.log）
+    if let Some(workdir) = &job.workdir {
+        let base = std::path::Path::new(workdir);
+        let mut files = Vec::new();
+        for sub in ["input", "output"] {
+            let d = base.join(sub);
+            if d.is_dir() {
+                collect_files(&d, &d, &mut files);
+            }
+        }
+        let stdout_log = base.join("stdout.log");
+        if stdout_log.is_file() {
+            files.push(("stdout.log".to_string(), stdout_log));
+        }
+        files.sort();
+        for (name, p) in files {
+            zipw.start_file(name, opts).map_err(zip_err)?;
+            let bytes = std::fs::read(&p).map_err(io_err)?;
+            zipw.write_all(&bytes).map_err(io_err)?;
+        }
+    }
+    zipw.finish().map_err(zip_err)?;
+    Ok(())
+}
+
+fn zip_err(e: zip::result::ZipError) -> ApiError {
+    ApiError::internal(format!("ZIP 错误: {e}"))
+}
+
+/// 递归收集目录文件（相对路径做 zip 条目名）。
+fn collect_files(
+    root: &std::path::Path,
+    dir: &std::path::Path,
+    out: &mut Vec<(String, std::path::PathBuf)>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let p = entry.path();
+        if p.is_dir() {
+            collect_files(root, &p, out);
+        } else if p.is_file() {
+            let rel = p
+                .strip_prefix(root)
+                .unwrap_or(&p)
+                .to_string_lossy()
+                .into_owned();
+            out.push((rel, p));
+        }
+    }
 }
 
 /// /mnt/c 红线自检（设计文档 §4.3：工作目录严禁 9P 盘）。

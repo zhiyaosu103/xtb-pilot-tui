@@ -264,39 +264,34 @@ impl Scheduler {
         }
     }
 
-    /// 崩溃恢复（daemon 启动时调用一次）：
+    /// 崩溃恢复（daemon 启动时调用一次，红线：kill -9 后状态可解释）：
     /// - `Running`（PID 已死）→ `Interrupted`，可续算；
-    /// - `Queued` / `Interrupted` → 重新入队（Interrupted 先转 Queued）；
+    /// - `Queued`（driver 已随进程消亡）→ `Interrupted`（诚实标记，
+    ///   否则任务永远卡在队列）；`Interrupted` 保持（可由上层续算）；
     /// - `Draft` / `Parsing` 保持原状。
     ///
-    /// 返回 (标记中断数, 重新入队数)。
+    /// 返回 (标记中断数, 保持中断数)。
     pub async fn recover(&self) -> Result<(usize, usize)> {
         let jobs = self.inner.store.list_non_terminal_jobs().await?;
         let mut interrupted = 0;
-        let mut requeued = 0;
+        let mut kept_interrupted = 0;
         for job in jobs {
             match job.status {
-                JobStatus::Running => {
+                JobStatus::Running | JobStatus::Queued => {
                     let mut j = job.clone();
                     j.transition(JobStatus::Interrupted)
                         .map_err(|e| SchedError::NotFound(format!("恢复转移失败: {e}")))?;
                     self.inner.store.update_job(&j).await?;
                     interrupted += 1;
                 }
-                JobStatus::Queued => {
-                    // 依据 workdir 与参数重建执行单元的任务由 daemon/工作流负责；
-                    // 调度器只负责把 Queued 留在队列视图（本实现不自动重放，
-                    // daemon 会再次 submit）。
-                    requeued += 1;
-                }
                 JobStatus::Interrupted => {
-                    requeued += 1;
+                    kept_interrupted += 1;
                 }
                 _ => {}
             }
         }
-        info!(interrupted, requeued, "崩溃恢复完成");
-        Ok((interrupted, requeued))
+        info!(interrupted, kept_interrupted, "崩溃恢复完成");
+        Ok((interrupted, kept_interrupted))
     }
 
     /// 优雅停机：取消全部运行中任务并等待 driver 收尾。
@@ -886,11 +881,11 @@ mod tests {
             EventBus::new(4),
             CancellationToken::new(),
         );
-        let (interrupted, _requeued) = sched.recover().await.unwrap();
-        assert_eq!(interrupted, 1);
+        let (interrupted, _kept) = sched.recover().await.unwrap();
+        assert_eq!(interrupted, 2, "Running 与 Queued 都应标记 Interrupted");
         let loaded = store.get_job(&running.id).await.unwrap().unwrap();
         assert_eq!(loaded.status, JobStatus::Interrupted);
         let loaded_q = store.get_job(&queued.id).await.unwrap().unwrap();
-        assert_eq!(loaded_q.status, JobStatus::Queued);
+        assert_eq!(loaded_q.status, JobStatus::Interrupted);
     }
 }
