@@ -1,7 +1,7 @@
 //! 持久层基础能力：SQLite 连接/迁移与 CSV 导出（设计文档 §3.5）。
 //!
-//! 领域表（molecules/jobs/results/spectra/artifacts）的仓储层在后续里程碑
-//! 于本 crate 内扩展；本模块只提供连接、迁移与 CSV 序列化三个基础原语。
+//! 领域表（molecules/jobs/results/spectra/artifacts）的仓储层见
+//! [`crate::repo`]；本模块提供连接、迁移与 CSV 序列化基础原语。
 
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 use std::path::Path;
@@ -21,6 +21,15 @@ pub enum StoreError {
 
     #[error("CSV 错误: {0}")]
     Csv(#[from] csv::Error),
+
+    #[error("JSON 错误: {0}")]
+    Json(#[from] serde_json::Error),
+
+    #[error("未找到: {0}")]
+    NotFound(String),
+
+    #[error("非法状态: {0}")]
+    Invalid(String),
 }
 
 /// 持久层便捷 Result 别名。

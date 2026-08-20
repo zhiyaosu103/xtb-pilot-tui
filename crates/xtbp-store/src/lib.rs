@@ -3,6 +3,10 @@
 //! 双层存储：SQLite（`~/.local/share/xtbpilot/xtbp.db`，WAL 模式）+ 文件仓
 //! （`data/<hash[:2]>/<hash>/`，只增不改）。迁移一律走 `sqlx migrate`。
 
+pub mod filerepo;
+pub mod repo;
 pub mod store;
 
-pub use store::{connect, export_csv, migrate};
+pub use filerepo::FileRepo;
+pub use repo::{JobFilter, Store};
+pub use store::{Result, StoreError, connect, export_csv, migrate};

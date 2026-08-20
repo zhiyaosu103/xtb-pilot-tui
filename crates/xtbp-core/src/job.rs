@@ -9,6 +9,7 @@ use crate::method::Method;
 use crate::time::now_unix;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::str::FromStr;
 
 /// Job 状态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -63,6 +64,24 @@ impl JobStatus {
                 | (Parsing, Done | Failed)
                 | (Interrupted, Queued) // 续算重新入队
         )
+    }
+}
+
+impl FromStr for JobStatus {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "draft" => Ok(Self::Draft),
+            "queued" => Ok(Self::Queued),
+            "running" => Ok(Self::Running),
+            "parsing" => Ok(Self::Parsing),
+            "done" => Ok(Self::Done),
+            "failed" => Ok(Self::Failed),
+            "cancelled" => Ok(Self::Cancelled),
+            "interrupted" => Ok(Self::Interrupted),
+            other => Err(format!("未知任务状态: {other}")),
+        }
     }
 }
 
@@ -283,5 +302,22 @@ mod tests {
     fn status_as_str_matches_protocol() {
         assert_eq!(JobStatus::Done.as_str(), "done");
         assert_eq!(JobStatus::Interrupted.as_str(), "interrupted");
+    }
+
+    #[test]
+    fn status_from_str_roundtrips() {
+        for s in [
+            JobStatus::Draft,
+            JobStatus::Queued,
+            JobStatus::Running,
+            JobStatus::Parsing,
+            JobStatus::Done,
+            JobStatus::Failed,
+            JobStatus::Cancelled,
+            JobStatus::Interrupted,
+        ] {
+            assert_eq!(s.as_str().parse::<JobStatus>().unwrap(), s);
+        }
+        assert!("weird".parse::<JobStatus>().is_err());
     }
 }
