@@ -373,11 +373,13 @@ impl WorkflowEngine {
         self.store.insert_job(&child).await?;
         state.job_id = Some(child.id);
 
-        // 执行单元
+        // 执行单元：模板 command 含 argv[0]（程序名，供 cmd.txt 人读），
+        // ExecUnit.program 已单独给出可执行路径——剥离 argv[0] 再传参
+        let args = strip_argv0(&rendered.command, &step.component);
         let unit = ExecUnit {
             job_id: child.id,
             program: comp.exe.clone(),
-            args: rendered.command,
+            args,
             cwd: step_dir,
             env: {
                 let mut env = comp.env.clone();
@@ -812,6 +814,14 @@ fn pre_render_extra(step: &WorkflowStep, params: &JobParams) -> WorkflowStep {
     s
 }
 
+/// 剥离模板命令中的 argv[0]（首个元素为组件名时）。
+fn strip_argv0(command: &[String], component: &str) -> Vec<String> {
+    match command.first() {
+        Some(first) if first == component => command[1..].to_vec(),
+        _ => command.to_vec(),
+    }
+}
+
 /// argv 转一行命令（含空格转义）。
 fn quote_argv(args: &[String]) -> String {
     args.iter()
@@ -902,5 +912,22 @@ command = ["crest", "{input_xyz}", "--nconf", "{nconf}"]
         let step = conformer_step();
         let rendered = pre_render_extra(&step, &JobParams::default());
         assert!(rendered.command.contains(&"20".to_string()));
+    }
+}
+
+#[cfg(test)]
+mod strip_tests {
+    use super::strip_argv0;
+
+    #[test]
+    fn strips_component_argv0() {
+        let cmd = vec!["xtb4stda".to_string(), "xtbopt.xyz".to_string()];
+        assert_eq!(strip_argv0(&cmd, "xtb4stda"), vec!["xtbopt.xyz"]);
+    }
+
+    #[test]
+    fn keeps_when_first_is_not_component() {
+        let cmd = vec!["xtbopt.xyz".to_string()];
+        assert_eq!(strip_argv0(&cmd, "xtb4stda"), cmd);
     }
 }

@@ -270,7 +270,9 @@ fn parse_transition_line(line: &str) -> Option<Transition> {
     let energy_ev: f64 = tokens[1].parse().ok()?;
     let wavelength_nm: f64 = tokens[2].parse().ok()?;
     let oscillator_strength: f64 = tokens[3].parse().ok()?;
-    // tokens[4] 为 Rv(corr)，不作回收。
+    // tokens[4] 为 Rv(corr)（浮点）。此校验排除 "lowest CSF states" 块
+    // （其第 4 列为轨道号、第 5 列为 "->"），避免把 CSF 行误当跃迁表。
+    let _rv: f64 = tokens[4].parse().ok()?;
 
     // 振幅组每 3 个 token 一组：`系数(` `i->` `a)`。
     let mut assignment_parts: Vec<String> = Vec::new();
@@ -440,5 +442,27 @@ mod tests {
         let dipole = parsed.scalars.iter().find(|s| s.key == "dipole").unwrap();
         assert!((dipole.value - AU_TO_DEBYE).abs() < 1e-9);
         assert_eq!(dipole.unit, "Debye");
+    }
+}
+
+#[cfg(test)]
+mod csf_tests {
+    use super::parse_transition_line;
+
+    #[test]
+    fn csf_block_line_is_not_a_transition() {
+        // "lowest CSF states" 块：第 4 列是轨道号，第 5 列是 "->"
+        let csf = "    1  4.59   270.3       76 ->  77     gap,J,K:   7.129";
+        assert!(parse_transition_line(csf).is_none());
+    }
+
+    #[test]
+    fn real_table_line_parses_with_assignment() {
+        let row =
+            "    1    3.942   314.5     0.0661    -8.7274     0.53(  76->  80)  0.49(  76->  77)";
+        let t = parse_transition_line(row).expect("真实跃迁表行应可解析");
+        assert!((t.wavelength_nm - 314.5).abs() < 1e-6);
+        assert!((t.oscillator_strength - 0.0661).abs() < 1e-6);
+        assert_eq!(t.assignment.as_deref(), Some("76→80"));
     }
 }

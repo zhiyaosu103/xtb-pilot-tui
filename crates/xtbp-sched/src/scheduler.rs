@@ -462,6 +462,14 @@ impl Scheduler {
             attempts: 0,
             stderr_tail: String::new(),
         };
+        // stdout.log 在 sched 侧同步写盘：保证 Finished 事件发出前文件已完整
+        // （工作流引擎据此回收产物，避免与归档任务竞态）
+        let log_path = unit.cwd.join("stdout.log");
+        let mut log_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .ok();
 
         for attempt in 0..total_attempts {
             attempts = attempt + 1;
@@ -471,16 +479,19 @@ impl Scheduler {
             });
             let outcome = run_process(
                 &opts,
-                |line| match line {
-                    Line::Out { text } => {
-                        self.inner.bus.publish(JobEvent::Output {
-                            job_id: job_id.to_string(),
-                            line: text,
-                        });
+                |line| {
+                    use std::io::Write;
+                    let text = match line {
+                        Line::Out { text } => text,
+                        Line::Err { text } => format!("[stderr] {text}"),
+                    };
+                    if let Some(f) = log_file.as_mut() {
+                        let _ = writeln!(f, "{text}");
                     }
-                    Line::Err { text } => {
-                        debug!(job = %job_id, line = %text, "stderr");
-                    }
+                    self.inner.bus.publish(JobEvent::Output {
+                        job_id: job_id.to_string(),
+                        line: text,
+                    });
                 },
                 cancel.clone(),
             )
@@ -523,6 +534,12 @@ impl Scheduler {
             }
         }
         result.attempts = attempts;
+        // stdout.log 落盘收口（先于 Finished 事件）
+        if let Some(f) = log_file.as_mut() {
+            use std::io::Write;
+            let _ = f.flush();
+        }
+        drop(log_file);
 
         // 终态落库
         if let Some(mut job) = self.inner.store.get_job(&job_id).await.unwrap_or(None) {

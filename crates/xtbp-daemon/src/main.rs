@@ -206,8 +206,8 @@ async fn main() -> Result<()> {
                     && let Ok(id) = job_id.parse::<xtbp_core::Ulid>()
                 {
                     tail.append(&id, line.clone());
-                    append_stdout_log(&state, &id, &line).await;
-                    // 子任务输出镜像到父任务（工作流任务整体 tail 视图）
+                    // 子任务输出镜像到父任务（工作流任务整体 tail 视图）；
+                    // 子任务自身的 stdout.log 由 sched 同步写盘，此处只补父文件
                     if let Ok(Some(job)) = state.store.get_job(&id).await
                         && let Some(parent) = job.parent_id
                     {

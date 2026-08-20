@@ -33,4 +33,5 @@ depends_on = ["orbitals"]
 command = ["stda", "-xtb", "wfn.xtb"]
 inputs = ["orbitals:wfn.xtb"]
 outputs = ["tda.dat"]
-collect = [{ file = "tda.dat", parser = "tda-dat" }]
+# 跃迁表（state/eV/nm/fL/assignment）在 stdout；tda.dat 是 DATXY 展宽谱数据
+collect = [{ file = "stdout.log", parser = "tda-dat" }]

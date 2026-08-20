@@ -139,6 +139,13 @@ fn spawn(
         // 独立进程组：kill(-pgid) 一次带走全部子进程
         .process_group(0)
         .kill_on_drop(true);
+    tracing::debug!(
+        program = %program.display(),
+        cwd = %cwd.display(),
+        env = ?env,
+        args = ?args,
+        "spawn 外部命令"
+    );
     cmd.spawn().map_err(|source| RunnerError::Spawn {
         program: program.display().to_string(),
         source,
