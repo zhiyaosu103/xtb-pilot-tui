@@ -155,14 +155,15 @@ def main():
         tui_samples = []
         last_sample = time.time()
 
-        # ---- 4) 事件循环：记录 started/finished、队列深度、峰值并发 ----
+        # ---- 4) 事件循环：记录队列深度/峰值并发；任务计时以 job.list 轮询为准 ----
+        # 注意：job.events 会携带子任务的 Output 洪峰，订阅通道可能溢出丢事件
+        # （父任务 Finished 可能被丢）——所以计时/终态一律以 store（job.list）为准，
+        # 事件流只用来观测队列深度。这正是本演练要暴露的教训：store 即真相。
         meta = {j[3]: {"ref": j[0], "wf": j[1], "prio": j[2]} for j in submitted}
         started_at, finished_at, ok_map = {}, {}, {}
-        running_seen = set()
         queue_history = []
         max_running = 0
-        start_order = []  # 父任务 running 顺序（优先级验证）
-        last_activity = time.time()
+        last_poll = 0.0
 
         def sample_tui(force=False):
             nonlocal last_sample
@@ -180,49 +181,44 @@ def main():
                 pass
 
         while True:
-            events = agent.drain(timeout=1.0)
-            for ev in events:
+            for ev in agent.drain(timeout=1.0):
                 p = ev.get("params") or {}
                 if ev.get("method") == "queue.events":
                     queue_history.append((time.time() - t_start, p.get("queued", 0), p.get("running", 0)))
                     max_running = max(max_running, p.get("running", 0))
-                    continue
-                if ev.get("method") != "job.events":
-                    continue
-                jid = p.get("job_id", "")
-                ty = p.get("type", "")
-                if jid not in meta:
-                    continue  # 只统计 63 个父任务
-                t = time.time() - t_start
-                if ty == "status" and p.get("status") == "running" and jid not in started_at:
-                    started_at[jid] = t
-                    start_order.append(jid)
-                    running_seen.add(jid)
-                elif ty == "finished":
-                    finished_at[jid] = t
-                    ok_map[jid] = bool(p.get("ok"))
-                    running_seen.discard(jid)
-                last_activity = t
             sample_tui()
+            now = time.time()
+            if now - last_poll < 3:
+                continue
+            last_poll = now
+            jobs = agent.call("job.list", {"limit": 2000})
+            jobs_list_last = jobs
+            for j in jobs:
+                if j["id"] not in meta:
+                    continue
+                if j.get("started_at") and j["id"] not in started_at:
+                    started_at[j["id"]] = j["started_at"] - t_start
+                if j["status"] in ("done", "failed", "cancelled") and j["id"] not in finished_at:
+                    finished_at[j["id"]] = (j.get("finished_at") or now) - t_start
+                    ok_map[j["id"]] = j["status"] == "done"
             if len(finished_at) >= 63:
                 break
-            if time.time() - t_start > 2400:
-                # 兜底：轮询 job.list 终态（事件可能迟到）
-                try:
-                    jobs = agent.call("job.list", {"limit": 2000})
-                    done = {j["id"] for j in jobs if j["status"] in ("done", "failed", "cancelled")}
-                    for _, _, _, jid in submitted:
-                        if jid not in finished_at and jid in done:
-                            st = agent.call("job.status", {"job_id": jid})
-                            finished_at[jid] = time.time() - t_start
-                            ok_map[jid] = st["status"] == "done"
-                    if len(finished_at) >= 63:
-                        break
-                except Exception:
-                    pass
-                if time.time() - t_start > 2700:
-                    raise AssertionError("批处理超时（2700s），任务未全部终态")
+            if now - t_start > 2700:
+                raise AssertionError("批处理超时（2700s），任务未全部终态")
 
+        # 起跑顺序按 started_at 排序（事件流可能丢，用轮询时间戳）。
+        # 注意：父任务在引擎启动工作流时即置 Running，其 started_at 不能
+        # 区分优先级波次——用子任务（实际调度执行单元）的最早起跑时间。
+        child_start = {}
+        for j in jobs_list_last:
+            if j.get("parent_id") and j.get("started_at"):
+                pid = j["parent_id"]
+                child_start[pid] = min(child_start.get(pid, 1 << 62), j["started_at"] - t_start)
+        eff_start = {
+            jid: child_start.get(jid, started_at.get(jid, 0.0))
+            for jid in meta
+        }
+        start_order = sorted(meta, key=lambda j: eff_start[j])
         t_wall = time.time() - t_start
         print(f"[3] 全部 63 任务终态 ✓（墙钟 {t_wall:.0f}s）")
 
@@ -230,7 +226,7 @@ def main():
         prio_running_order = [meta[j]["prio"] for j in start_order]
         mean_start = {}
         for p in (0, 1, 2):
-            times = [started_at[j] for j in start_order if meta[j]["prio"] == p]
+            times = [eff_start[j] for j in start_order if meta[j]["prio"] == p]
             mean_start[p] = sum(times) / len(times) if times else float("inf")
         last_start_prio = prio_running_order[-1] if prio_running_order else -1
         assert len(started_at) == 63, f"应有 63 个 started: {len(started_at)}"
@@ -269,16 +265,17 @@ def main():
 
         header = ["refcode", "E_sp (Eh)", "E_vert (eV)", "λ_h (eV)", "λ_e (eV)", "备注"]
         table = []
-        for ref, _ in MOLECULES:
+        for _, ref in MOLECULES:
             notes = []
-            for wf in ("sp", "excited", "reorg"):
+            # 工作流 id：sp / excited / reorg-4pt（标量键带步骤前缀 sp.）
+            for wf, disp in (("sp", "sp"), ("excited", "excited"), ("reorg-4pt", "reorg")):
                 st_wf, _ = scalars_by_job.get((ref, wf), ("missing", {}))
                 if st_wf != "done":
-                    notes.append(f"{wf}失败")
+                    notes.append(f"{disp}失败")
             st_sp, sc_sp = scalars_by_job.get((ref, "sp"), ("missing", {}))
             st_ex, sc_ex = scalars_by_job.get((ref, "excited"), ("missing", {}))
-            st_rg, sc_rg = scalars_by_job.get((ref, "reorg"), ("missing", {}))
-            e_sp = sc_sp.get("total_energy") if st_sp == "done" else None
+            st_rg, sc_rg = scalars_by_job.get((ref, "reorg-4pt"), ("missing", {}))
+            e_sp = sc_sp.get("sp.total_energy") if st_sp == "done" else None
             e_vert = (
                 sc_ex.get("stda.first_excitation_energy")
                 if st_ex == "done" else None
@@ -300,7 +297,9 @@ def main():
             "## 环境与负载",
             f"- 隔离 daemon 并发槽: {slots}（OMP 每任务 1 线程）",
             f"- 分子数: {len(MOLECULES)}（CSD 含硼化合物）× 工作流 sp/excited/reorg-4pt = {len(submitted)} 任务",
-            f"- 墙钟总耗时: {t_wall:.0f}s；峰值并发运行: {max_running}；优先级序（前 {slots} 个开始任务）: {first_batch}",
+            f"- 墙钟总耗时: {t_wall:.0f}s；峰值并发运行: {max_running}；"
+            f"平均起跑 sp {mean_start[0]:.0f}s < excited {mean_start[1]:.0f}s < reorg {mean_start[2]:.0f}s；"
+            f"最后起跑优先级 {last_start_prio}（{'✓' if prio_ok else '✗'}）",
             "",
             "## 每分子结果",
             "| " + " | ".join(header) + " |",

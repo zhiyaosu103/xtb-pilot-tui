@@ -1010,7 +1010,13 @@ command = ["crest", "{input_xyz}", "--nconf", "{nconf}"]
     /// 组装引擎 + store + 已终态子任务（无任何事件送达）的最小环境。
     async fn reconcile_fixture(
         child_status: JobStatus,
-    ) -> (WorkflowEngine, Job, Job, HashMap<String, ChildState>) {
+    ) -> (
+        WorkflowEngine,
+        Job,
+        Job,
+        HashMap<String, ChildState>,
+        tempfile::TempDir,
+    ) {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(&dir.path().join("t.db")).await.unwrap();
         let bus = EventBus::new(16);
@@ -1088,12 +1094,14 @@ command = ["xtb", "{input_xyz}", "--sp"]
         let output_dir = dir.path().join("output");
         std::fs::create_dir_all(&work_dir).unwrap();
         std::fs::create_dir_all(&output_dir).unwrap();
-        (engine, parent, child, children)
+        // 返回 dir 守卫：TempDir 必须活到测试结束，否则 SQLite 文件被删、
+        // 连接池新建连接时偶发失败（全量并行跑时暴露）
+        (engine, parent, child, children, dir)
     }
 
     #[tokio::test]
     async fn reconcile_settles_child_when_finished_event_lost() {
-        let (engine, parent, _child, mut children) = reconcile_fixture(JobStatus::Done).await;
+        let (engine, parent, _child, mut children, _dir) = reconcile_fixture(JobStatus::Done).await;
         let work_dir = engine.file_repo.job_dir(&parent.id).join("work");
         let output_dir = engine.file_repo.job_dir(&parent.id).join("output");
         let progressed = engine
@@ -1106,7 +1114,8 @@ command = ["xtb", "{input_xyz}", "--sp"]
 
     #[tokio::test]
     async fn reconcile_hardfails_when_child_failed() {
-        let (engine, parent, _child, mut children) = reconcile_fixture(JobStatus::Failed).await;
+        let (engine, parent, _child, mut children, _dir) =
+            reconcile_fixture(JobStatus::Failed).await;
         let work_dir = engine.file_repo.job_dir(&parent.id).join("work");
         let output_dir = engine.file_repo.job_dir(&parent.id).join("output");
         let res = engine
@@ -1121,7 +1130,8 @@ command = ["xtb", "{input_xyz}", "--sp"]
     #[tokio::test]
     async fn reconcile_settles_child_stuck_in_parsing() {
         // Finished 事件丢失的典型状态：子任务 exit 0 后停在 Parsing
-        let (engine, parent, _child, mut children) = reconcile_fixture(JobStatus::Parsing).await;
+        let (engine, parent, _child, mut children, _dir) =
+            reconcile_fixture(JobStatus::Parsing).await;
         let work_dir = engine.file_repo.job_dir(&parent.id).join("work");
         let output_dir = engine.file_repo.job_dir(&parent.id).join("output");
         let progressed = engine
@@ -1141,7 +1151,8 @@ command = ["xtb", "{input_xyz}", "--sp"]
 
     #[tokio::test]
     async fn reconcile_skips_non_terminal_children() {
-        let (engine, parent, _child, mut children) = reconcile_fixture(JobStatus::Running).await;
+        let (engine, parent, _child, mut children, _dir) =
+            reconcile_fixture(JobStatus::Running).await;
         let work_dir = engine.file_repo.job_dir(&parent.id).join("work");
         let output_dir = engine.file_repo.job_dir(&parent.id).join("output");
         let progressed = engine
