@@ -187,6 +187,17 @@ impl WorkflowEngine {
                     message: "工作流整体超时".into(),
                 });
             }
+            // 对账：事件总线可能丢事件（Lagged，批处理并发压力下实测复现）。
+            // 以 store 终态为准收口子任务，避免 Finished 丢失后整链卡死
+            // （子任务永远停在 Parsing、父任务永远 Running 直到整体超时）。
+            if self
+                .reconcile_children(&mut children, job, &work_dir, &output_dir)
+                .await?
+            {
+                self.submit_ready(&tpl, &mut children, job, &mol, &input_dir, &work_dir)
+                    .await?;
+                continue;
+            }
             let ev = tokio::select! {
                 _ = tokio::time::sleep(Duration::from_millis(500)) => continue,
                 ev = rx.recv() => match ev {
@@ -415,6 +426,10 @@ impl WorkflowEngine {
         output_dir: &Path,
     ) -> Result<StepSettle> {
         let state = children.get_mut(step_key).unwrap();
+        if state.outcome.is_some() {
+            // 对账已收口该步骤：忽略迟到的重复 Finished 事件（幂等）
+            return Ok(StepSettle::Ok);
+        }
         state.outcome = Some(ok);
         if !ok {
             warn!(job = %job.id, step = %step_key, ?error_code, "子步骤失败");
@@ -490,6 +505,77 @@ impl WorkflowEngine {
             let _ = self.store.update_job(&child).await;
         }
         Ok(StepSettle::Ok)
+    }
+
+    /// 对账收口：事件总线丢事件（Lagged）时，以 store 终态为准推进工作流。
+    ///
+    /// 扫描所有尚未收口且已提交的子任务：store 里已是终态（Done/Failed/
+    /// Cancelled）但本引擎还没收到 Finished 事件 → 用 handle_finished 补齐。
+    /// 返回是否有推进（调用方需重新 submit_ready 推下游步骤）。
+    async fn reconcile_children(
+        &self,
+        children: &mut HashMap<String, ChildState>,
+        job: &Job,
+        work_dir: &Path,
+        output_dir: &Path,
+    ) -> Result<bool> {
+        let pending: Vec<String> = children
+            .iter()
+            .filter(|(_, c)| c.outcome.is_none() && c.job_id.is_some())
+            .map(|(k, _)| k.clone())
+            .collect();
+        let mut progressed = false;
+        for key in pending {
+            let Some(child_id) = children.get(&key).and_then(|c| c.job_id) else {
+                continue;
+            };
+            let Some(child) = self.store.get_job(&child_id).await? else {
+                continue;
+            };
+            // 收口条件：终态之外，Parsing 也算已跑完——sched 是 exit 0 后才
+            // 落库 Parsing 再发 Finished 事件，所以「停在 Parsing」= Finished
+            // 事件丢失（Lagged）。此时以 store 为准按成功收口并补做产物回收。
+            let settled = matches!(
+                child.status,
+                JobStatus::Done
+                    | JobStatus::Parsing
+                    | JobStatus::Failed
+                    | JobStatus::Cancelled
+                    | JobStatus::Interrupted
+            );
+            if !settled {
+                continue;
+            }
+            let ok = matches!(child.status, JobStatus::Done | JobStatus::Parsing);
+            match self
+                .handle_finished(
+                    &key,
+                    children,
+                    ok,
+                    &child.error_code,
+                    job,
+                    work_dir,
+                    output_dir,
+                )
+                .await?
+            {
+                StepSettle::Ok | StepSettle::SoftFail => progressed = true,
+                StepSettle::HardFail => {
+                    self.cancel_children(children).await;
+                    self.fail_job(
+                        job,
+                        error_codes::XTB_CONVERGENCE_FAILED,
+                        &format!("步骤 {key} 失败（abort 策略）"),
+                    )
+                    .await;
+                    return Err(WorkflowError::StepFailed {
+                        step: job.workflow.clone(),
+                        message: format!("步骤 {key} 失败（abort 策略）"),
+                    });
+                }
+            }
+        }
+        Ok(progressed)
     }
 
     /// skip 策略：把失败步骤的传递下游标记为跳过（outcome=false 且不提交）。
@@ -874,6 +960,9 @@ fn write_transitions_csv(output_dir: &Path, transitions: &[Transition]) -> Resul
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+    use tokio_util::sync::CancellationToken;
+    use xtbp_core::molecule::{Charge, Multiplicity};
+    use xtbp_sched::SchedConfig;
 
     fn conformer_step() -> WorkflowStep {
         WorkflowTemplate::parse(
@@ -912,6 +1001,155 @@ command = ["crest", "{input_xyz}", "--nconf", "{nconf}"]
         let step = conformer_step();
         let rendered = pre_render_extra(&step, &JobParams::default());
         assert!(rendered.command.contains(&"20".to_string()));
+    }
+
+    // ------------------------------------------------------------------
+    // 对账（reconcile_children）：事件总线丢 Finished 时以 store 收口
+    // ------------------------------------------------------------------
+
+    /// 组装引擎 + store + 已终态子任务（无任何事件送达）的最小环境。
+    async fn reconcile_fixture(
+        child_status: JobStatus,
+    ) -> (WorkflowEngine, Job, Job, HashMap<String, ChildState>) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("t.db")).await.unwrap();
+        let bus = EventBus::new(16);
+        let shutdown = CancellationToken::new();
+        let sched = Scheduler::new(SchedConfig::default(), store.clone(), bus.clone(), shutdown);
+        let templates = TemplateRegistry::new();
+        let file_repo = FileRepo::new(dir.path().to_path_buf());
+        let resolver: ComponentResolver = std::sync::Arc::new(|_| None);
+        let engine = WorkflowEngine::new(store.clone(), sched, bus, templates, file_repo, resolver);
+
+        let mol = Molecule::new("C1=CC=CC=C1", Charge(0), Multiplicity(1), now_unix());
+        let mol = store.ensure_molecule(&mol).await.unwrap();
+        let mut parent = Job::new(mol.id, "opt", JobParams::default(), "h".into(), None, 0);
+        store.insert_job(&parent).await.unwrap();
+        // 父任务进入运行态（真实流程中步骤执行时父任务已是 Running）
+        for st in [JobStatus::Queued, JobStatus::Running] {
+            parent.transition(st).unwrap();
+            store.update_job(&parent).await.unwrap();
+        }
+
+        // 子任务直接造到终态（模拟：sched 已跑完并落库，但 Finished 事件丢了）
+        let mut child = Job::new(
+            mol.id,
+            "sp",
+            JobParams::default(),
+            "c".into(),
+            Some(parent.id),
+            0,
+        );
+        store.insert_job(&child).await.unwrap();
+        for st in [JobStatus::Queued, JobStatus::Running] {
+            child.transition(st).unwrap();
+            store.update_job(&child).await.unwrap();
+        }
+        if child_status != JobStatus::Running {
+            child.transition(JobStatus::Parsing).unwrap();
+            store.update_job(&child).await.unwrap();
+        }
+        match child_status {
+            JobStatus::Done => {
+                child.transition(JobStatus::Done).unwrap();
+                store.update_job(&child).await.unwrap();
+            }
+            JobStatus::Failed => {
+                child.fail(error_codes::XTB_CONVERGENCE_FAILED, "测试失败");
+                child.transition(JobStatus::Failed).unwrap();
+                store.update_job(&child).await.unwrap();
+            }
+            JobStatus::Parsing => {} // 卡在 Parsing：Finished 事件丢失的典型状态
+            JobStatus::Running => {} // 非终态：对账应跳过
+            other => panic!("fixture 只支持 Done/Failed/Parsing/Running: {other:?}"),
+        }
+
+        let step = WorkflowTemplate::parse(
+            r#"
+id = "sp"
+description = "x"
+[[steps]]
+id = "sp"
+component = "xtb"
+command = ["xtb", "{input_xyz}", "--sp"]
+"#,
+        )
+        .unwrap()
+        .steps
+        .pop()
+        .unwrap();
+        let mut children = HashMap::new();
+        let mut cs = ChildState::new(step, "sp".into(), None);
+        cs.job_id = Some(child.id);
+        cs.submitted = true;
+        children.insert("sp".into(), cs);
+
+        let work_dir = dir.path().join("work");
+        let output_dir = dir.path().join("output");
+        std::fs::create_dir_all(&work_dir).unwrap();
+        std::fs::create_dir_all(&output_dir).unwrap();
+        (engine, parent, child, children)
+    }
+
+    #[tokio::test]
+    async fn reconcile_settles_child_when_finished_event_lost() {
+        let (engine, parent, _child, mut children) = reconcile_fixture(JobStatus::Done).await;
+        let work_dir = engine.file_repo.job_dir(&parent.id).join("work");
+        let output_dir = engine.file_repo.job_dir(&parent.id).join("output");
+        let progressed = engine
+            .reconcile_children(&mut children, &parent, &work_dir, &output_dir)
+            .await
+            .unwrap();
+        assert!(progressed, "Done 子任务应被对账收口");
+        assert_eq!(children["sp"].outcome, Some(true));
+    }
+
+    #[tokio::test]
+    async fn reconcile_hardfails_when_child_failed() {
+        let (engine, parent, _child, mut children) = reconcile_fixture(JobStatus::Failed).await;
+        let work_dir = engine.file_repo.job_dir(&parent.id).join("work");
+        let output_dir = engine.file_repo.job_dir(&parent.id).join("output");
+        let res = engine
+            .reconcile_children(&mut children, &parent, &work_dir, &output_dir)
+            .await;
+        assert!(res.is_err(), "Failed 子任务应对账触发 abort 失败");
+        assert_eq!(children["sp"].outcome, Some(false));
+        let loaded = engine.store.get_job(&parent.id).await.unwrap().unwrap();
+        assert_eq!(loaded.status, JobStatus::Failed);
+    }
+
+    #[tokio::test]
+    async fn reconcile_settles_child_stuck_in_parsing() {
+        // Finished 事件丢失的典型状态：子任务 exit 0 后停在 Parsing
+        let (engine, parent, _child, mut children) = reconcile_fixture(JobStatus::Parsing).await;
+        let work_dir = engine.file_repo.job_dir(&parent.id).join("work");
+        let output_dir = engine.file_repo.job_dir(&parent.id).join("output");
+        let progressed = engine
+            .reconcile_children(&mut children, &parent, &work_dir, &output_dir)
+            .await
+            .unwrap();
+        assert!(progressed, "卡在 Parsing 的子任务应收口为成功");
+        assert_eq!(children["sp"].outcome, Some(true));
+        let loaded = engine
+            .store
+            .get_job(&children["sp"].job_id.unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(loaded.status, JobStatus::Done, "子任务应被补到 Done");
+    }
+
+    #[tokio::test]
+    async fn reconcile_skips_non_terminal_children() {
+        let (engine, parent, _child, mut children) = reconcile_fixture(JobStatus::Running).await;
+        let work_dir = engine.file_repo.job_dir(&parent.id).join("work");
+        let output_dir = engine.file_repo.job_dir(&parent.id).join("output");
+        let progressed = engine
+            .reconcile_children(&mut children, &parent, &work_dir, &output_dir)
+            .await
+            .unwrap();
+        assert!(!progressed, "非终态子任务不应推进");
+        assert_eq!(children["sp"].outcome, None);
     }
 }
 
