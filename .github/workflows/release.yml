@@ -38,7 +38,7 @@ jobs:
             --title "xTB-Pilot $GITHUB_REF_NAME" \
             --notes "Prebuilt Linux x86_64 binaries (xtbp-tui + xtbp-daemon) with workflow templates.
 
-Install:
-  tar -xzf xtbpilot-linux-x86_64.tar.gz
-  cp -r bin/. ~/.local/bin/
-  mkdir -p ~/.local/share/xtbpilot && cp -r templates ~/.local/share/xtbpilot/"
+          Install:
+            tar -xzf xtbpilot-linux-x86_64.tar.gz
+            cp -r bin/. ~/.local/bin/
+            mkdir -p ~/.local/share/xtbpilot && cp -r templates ~/.local/share/xtbpilot/"
