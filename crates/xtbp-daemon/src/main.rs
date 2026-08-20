@@ -72,6 +72,11 @@ struct Args {
     /// 内存预算 MB（0 = 不限额）
     #[arg(long, default_value_t = 0)]
     memory_budget_mb: u64,
+
+    /// 空闲自毁：最后一个任务完成后持续空闲 N 秒即自动退出
+    /// （0 = 禁用；TUI/agent 下次操作会自动拉起新 daemon）。
+    #[arg(long, default_value_t = 30)]
+    idle_shutdown_secs: u64,
 }
 
 #[derive(Subcommand, Debug)]
@@ -152,6 +157,54 @@ async fn main() -> Result<()> {
     sched.start();
     let (interrupted, requeued) = sched.recover().await?;
     info!(interrupted, requeued, "崩溃恢复完成");
+
+    // ---- 空闲自毁（§2.1 补充：任务跑完不赖着）----
+    // 曾经有过任务 → running/queued 全空 → 持续空闲 N 秒 → 自动退出。
+    // 启动即空闲（从未有过任务）不触发，避免「刚拉起就退出」；
+    // TUI/agent 下次操作会自动拉起新 daemon（TUI 侧 spawn 兜底）。
+    //
+    // 事件驱动（订阅队列事件）+ 1s 定时器：轮询采样会漏掉秒级快任务
+    // 的 busy 窗口（had_jobs 永远 false，实测踩坑），事件不会丢。
+    if args.idle_shutdown_secs > 0 {
+        let idle_sched = sched.clone();
+        let idle_shutdown = shutdown.clone();
+        let idle_secs = args.idle_shutdown_secs;
+        let idle_bus = bus.clone();
+        tokio::spawn(async move {
+            let mut had_jobs = false;
+            let mut idle_since: Option<std::time::Instant> = None;
+            let mut rx = idle_bus.subscribe();
+            let mut timer = tokio::time::interval(std::time::Duration::from_secs(1));
+            timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tokio::select! {
+                    _ = idle_shutdown.cancelled() => return,
+                    _ = timer.tick() => {}
+                    ev = rx.recv() => match ev {
+                        Ok(_) => {
+                            let stats = idle_sched.stats();
+                            if stats.running > 0 || stats.queued > 0 {
+                                had_jobs = true;
+                                idle_since = None;
+                            } else if had_jobs && idle_since.is_none() {
+                                idle_since = Some(std::time::Instant::now());
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                    },
+                }
+                if had_jobs
+                    && let Some(t) = idle_since
+                    && t.elapsed() >= std::time::Duration::from_secs(idle_secs)
+                {
+                    info!(idle_secs, "任务全部完成且空闲，自动退出");
+                    idle_shutdown.cancel();
+                    return;
+                }
+            }
+        });
+    }
 
     // ---- 工作流引擎 ----
     let templates = TemplateRegistry::load_dir(&templates_dir)?;

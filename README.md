@@ -160,6 +160,11 @@ python3 tests/batch_parallel.py        # P6 批处理并行调度实弹（63 任
 - TUI 配置页展示只读（配置热重载待后续）；MCP 预留为 xtbp-api 薄封装扩展点；
 - QCG / aISS 只登记实例不接工作流。
 
+## 工程规范
+
+TUI 交互约定（可切换选项一律 ←/→、退出语义、daemon 空闲自毁与停机路径等）
+见 [docs/engineering-spec.md](docs/engineering-spec.md)。新增交互功能前先读它。
+
 ## 参与开发
 
 - 开发红线、分支/PR 流程与端到端测试清单见 [CONTRIBUTING.md](CONTRIBUTING.md)；

@@ -669,7 +669,8 @@ fn draw_instances(frame: &mut Frame, model: &mut AppModel, area: Rect) {
 
 fn draw_settings(frame: &mut Frame, model: &AppModel, area: Rect) {
     let health = model.health.clone().unwrap_or_default();
-    let lines = vec![
+    // 设置项列表（j/k 移动选中，←/→ 切换值——工程规范见 docs/engineering-spec.md）
+    let mut lines = vec![
         Line::from("连接: UDS（daemon 为 TUI 保留的本地通道）"),
         Line::from("协议: xtbp-jsonrpc-v1（NDJSON，事件订阅推送）"),
         Line::from("数据目录（daemon 侧）:"),
@@ -683,9 +684,43 @@ fn draw_settings(frame: &mut Frame, model: &AppModel, area: Rect) {
             Style::default().fg(Color::LightCyan),
         )),
         Line::from(""),
-        Line::from("配置修改：编辑 ~/.local/share/xtbpilot/registry.toml 后重启 daemon"),
-        Line::from("（配置热重载为后续里程碑；方法学边界：全部结果为筛选级 screening）"),
     ];
+    // 可切换设置项（工程规范：开关类选项 ←/→ 切换）
+    for (i, item) in crate::model::SETTINGS_ITEMS.iter().enumerate() {
+        let selected = i == model.settings_sel;
+        let value = if model.exit_shuts_daemon {
+            "开"
+        } else {
+            "关"
+        };
+        let prefix = if selected { "▸ " } else { "  " };
+        let text = format!("{prefix}{item}: {value}");
+        lines.push(Line::from(Span::styled(
+            text,
+            Style::default().fg(if selected {
+                Color::LightCyan
+            } else {
+                Color::Gray
+            }),
+        )));
+        if selected {
+            lines.push(Line::from(Span::styled(
+                if model.exit_shuts_daemon {
+                    "   ←/→ 切换（开）：退出 TUI 时同步关闭 daemon，递归清理全部计算进程"
+                } else {
+                    "   ←/→ 切换（关）：退出仅关闭 TUI；daemon 独立运行，任务全部完成后空闲自毁"
+                },
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(
+        "配置修改：编辑 ~/.local/share/xtbpilot/registry.toml 后重启 daemon",
+    ));
+    lines.push(Line::from(
+        "（配置热重载为后续里程碑；方法学边界：全部结果为筛选级 screening）",
+    ));
     frame.render_widget(
         Paragraph::new(lines)
             .block(block("设置"))
@@ -719,6 +754,7 @@ fn draw_help(frame: &mut Frame, area: Rect) {
         Line::from("c / n          电荷 / 多重度"),
         Line::from(""),
         Line::from("c（Jobs 页）   取消选中任务        o（Structure 页）外部查看器"),
+        Line::from("Settings 页      j/k 选中设置项 · ←/→ 切换开关值"),
         Line::from("?                 本帮助        q / Esc  退出（daemon 保持运行）"),
         Line::from(""),
         Line::from(Span::styled(

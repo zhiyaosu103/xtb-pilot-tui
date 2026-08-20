@@ -264,6 +264,8 @@ pub struct AppModel {
     pub inst_sel: usize,
     pub wf_sel: usize,
     pub struct_angle: f64,
+    /// Settings 页当前选中的设置项索引（←/→ 切换其值，j/k 移动）。
+    pub settings_sel: usize,
 
     // 详情（选中任务）
     pub detail: Option<JobView>,
@@ -287,7 +289,14 @@ pub struct AppModel {
     pub status_line: String,
     pub form: SubmitForm,
     pub quit: bool,
+    /// 「退出时同时关闭 daemon」开关（Settings 页选中后 ←/→ 切换；
+    /// 默认关 = 只退 TUI、daemon 独立存活并在任务全部完成后空闲自毁）。
+    pub exit_shuts_daemon: bool,
 }
+
+/// Settings 页可切换设置项（j/k 移动选中，←/→ 切换值）。
+/// 工程规范：所有「开关类」选项统一用 ←/→ 切换（见 docs/engineering-spec.md）。
+pub const SETTINGS_ITEMS: [&str; 1] = ["退出时关闭 daemon"];
 
 impl Default for AppModel {
     fn default() -> Self {
@@ -310,6 +319,7 @@ impl Default for AppModel {
             inst_sel: 0,
             wf_sel: 0,
             struct_angle: 0.0,
+            settings_sel: 0,
             detail: None,
             tail: Vec::new(),
             tail_next: 0,
@@ -338,6 +348,7 @@ impl Default for AppModel {
                 multiplicity: 1,
             },
             quit: false,
+            exit_shuts_daemon: false,
         }
     }
 }

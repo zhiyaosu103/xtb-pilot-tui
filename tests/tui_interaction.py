@@ -190,7 +190,7 @@ class BareAgent:
             pass
 
 
-def start_daemon(tmp, port, uds, token, max_concurrent=2):
+def start_daemon(tmp, port, uds, token, max_concurrent=2, idle_shutdown_secs=0):
     # HOME 覆盖到隔离目录：resolve_token 写 ~/.xtbpilot/agent.json、
     # ensure_xtb4stda_home_params 写 ~/.param_stda*.xtb（CI/沙箱下 HOME 只读）。
     # 组件回退发现走 ~/opt/<name>-*/bin（daemon find_component），
@@ -213,6 +213,7 @@ def start_daemon(tmp, port, uds, token, max_concurrent=2):
         "--registry", os.path.join(tmp, "registry.toml"),
         "--log-dir", os.path.join(tmp, "logs"),
         "--max-concurrent", str(max_concurrent),
+        "--idle-shutdown-secs", str(idle_shutdown_secs),
     ]
     return subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -232,9 +233,11 @@ def wait_port(port, timeout=20):
 class Tui:
     """PTY 中的 xtbp-tui 会话：注入键序列 + 屏幕抓取。"""
 
-    def __init__(self, args, timeout=60):
+    def __init__(self, args, env=None, timeout=60):
         pid, fd = pty.fork()
         if pid == 0:
+            if env is not None:
+                os.execve(TUI, [TUI] + args, env)
             os.execv(TUI, [TUI] + args)
         self.pid = pid
         self.fd = fd
@@ -328,7 +331,8 @@ def main():
     try:
         assert wait_port(port), "隔离 daemon 启动失败"
         agent = BareAgent(port, token)
-        tui = Tui(["--uds", uds, "--no-spawn"])  # 无 token：UDS 不鉴权（回归）
+        tui_env = dict(os.environ, HOME=tmp)
+        tui = Tui(["--uds", uds, "--no-spawn"], env=tui_env)  # 无 token：UDS 不鉴权（回归）
         try:
             # ---- S1 连接 + 帮助 ----
             tui.wait_for("已连接 daemon", timeout=30, desc="UDS 连接")
@@ -559,19 +563,32 @@ def main():
             assert health["ok"], "daemon 应仍在运行"
             print("[S8] q 退出（退出码 0，daemon 独立存活）✓")
 
-            # ---- S9 Ctrl-C 退出 → 递归全链清理 ----
-            tui2 = Tui(["--uds", uds, "--no-spawn"])  # 无 token（回归）
+            # ---- S9 退出语义：开关默认关 → 只退 TUI；Settings 页 ←/→ 开开关 → 全链退出 ----
+            # 9a) 开关默认关（隔离 HOME 无设置文件）：Ctrl-C 只退 TUI，daemon 存活
+            tui2 = Tui(["--uds", uds, "--no-spawn"], env=tui_env)  # 无 token（回归）
             tui2.wait_for("已连接 daemon", timeout=30, desc="第二个会话连接")
             tui2.key("ctrl-c")
             code2 = tui2.wait_exit()
             assert code2 == 0, f"Ctrl-C 退出码应为 0: {code2}"
-            # 递归清理：TUI 的 Ctrl-C 应请求 sys.shutdown → daemon 优雅退出
-            # （取消全部任务 → 递归杀计算进程组 → 清理 helper）
+            assert daemon.poll() is None, "开关关时 Ctrl-C 不应关闭 daemon"
+            print("[S9a] 开关关：Ctrl-C 只退 TUI、daemon 存活 ✓")
+            # 9b) Settings 页：选中设置项后按 → 打开「退出时关闭 daemon」
+            tui3 = Tui(["--uds", uds, "--no-spawn"], env=tui_env)
+            tui3.wait_for("已连接 daemon", timeout=30, desc="第三个会话连接")
+            for _ in range(7):
+                tui3.key("tab")
+            tui3.wait_for("· Settings", desc="到 Settings 页")
+            tui3.key("right")
+            tui3.wait_for("退出时将同时关闭 daemon", timeout=10, desc="开关已打开")
+            # 9c) Ctrl-C → daemon 递归关闭（sys.shutdown → 取消任务/杀进程组/清 helper）
+            tui3.key("ctrl-c")
+            code3 = tui3.wait_exit()
+            assert code3 == 0, f"Ctrl-C 退出码应为 0: {code3}"
             deadline = time.time() + 20
             while time.time() < deadline and daemon.poll() is None:
                 time.sleep(0.3)
-            assert daemon.poll() is not None, "Ctrl-C 后 daemon 应退出（递归全链清理）"
-            print("[S9] Ctrl-C 退出 → daemon 递归关闭 ✓")
+            assert daemon.poll() is not None, "开关开时 Ctrl-C 后 daemon 应退出"
+            print("[S9b] Settings → 开开关；Ctrl-C → daemon 递归关闭 ✓")
 
         finally:
             try:

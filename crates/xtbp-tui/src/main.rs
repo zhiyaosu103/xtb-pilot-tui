@@ -13,7 +13,7 @@ use clap::Parser;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use model::{
     AppModel, FAMILY_LABELS, FAMILY_NAMES, InputMode, JobView, NumberField, Page, QueueStats,
-    SOLVATION_LABELS, SOLVATION_NAMES,
+    SETTINGS_ITEMS, SOLVATION_LABELS, SOLVATION_NAMES,
 };
 use ratatui::DefaultTerminal;
 use std::time::Duration;
@@ -75,6 +75,47 @@ fn discover_token() -> Option<String> {
     v.get("token").and_then(|t| t.as_str()).map(String::from)
 }
 
+/// TUI 本地设置文件路径（与 daemon 数据目录同址）。
+fn tui_settings_path() -> String {
+    expand_tilde("~/.local/share/xtbpilot/tui-settings.json")
+}
+
+/// 读取本地设置（缺省：退出不关 daemon——daemon 空闲自毁兜底）。
+fn load_tui_settings() -> bool {
+    std::fs::read_to_string(tui_settings_path())
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|v| v.get("exit_shuts_daemon").and_then(|b| b.as_bool()))
+        .unwrap_or(false)
+}
+
+/// 持久化本地设置（失败仅提示，不影响使用）。
+fn save_tui_settings(exit_shuts_daemon: bool) -> std::io::Result<()> {
+    let path = tui_settings_path();
+    if let Some(dir) = std::path::Path::new(&path).parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let json = serde_json::json!({ "exit_shuts_daemon": exit_shuts_daemon });
+    std::fs::write(
+        path,
+        serde_json::to_string_pretty(&json).unwrap_or_default(),
+    )
+}
+
+/// 统一退出：开关 ON 时先请求 daemon 优雅停机（递归清理计算/helper
+/// 进程组），再退 TUI；开关 OFF 只退 TUI（daemon 空闲自毁兜底）。
+async fn request_exit(model: &mut AppModel, client: Option<&mut Client<UnixStream>>) {
+    if model.exit_shuts_daemon
+        && let Some(c) = client
+        && c.call(methods::SYS_SHUTDOWN, serde_json::json!({}))
+            .await
+            .is_ok()
+    {
+        model.status_line = "已请求 daemon 停机（计算进程一并清理）".into();
+    }
+    model.quit = true;
+}
+
 async fn run(terminal: &mut DefaultTerminal, args: &Args) -> Result<()> {
     let uds = expand_tilde(&args.uds);
     // token：CLI 显式 > agent.json 自动发现 > 空（UDS 不鉴权）
@@ -83,7 +124,10 @@ async fn run(terminal: &mut DefaultTerminal, args: &Args) -> Result<()> {
     } else {
         args.token.clone()
     };
-    let mut model = AppModel::default();
+    let mut model = AppModel {
+        exit_shuts_daemon: load_tui_settings(),
+        ..Default::default()
+    };
     let mut client: Option<Client<UnixStream>> = None;
     let mut spawn_tried = false;
 
@@ -189,28 +233,15 @@ async fn run(terminal: &mut DefaultTerminal, args: &Args) -> Result<()> {
 // 事件处理
 // ---------------------------------------------------------------------------
 
-async fn handle_key(
-    model: &mut AppModel,
-    mut client: Option<&mut Client<UnixStream>>,
-    key: &KeyEvent,
-) {
-    // Ctrl-C：任何时刻「全链退出」——先请求 daemon 优雅停机
-    // （取消全部任务、递归杀计算进程组与 RDKit helper），再退 TUI。
-    // 与 q/Esc 不同：q 只退 TUI，daemon 独立存活（设计文档 §2.1）。
+async fn handle_key(model: &mut AppModel, client: Option<&mut Client<UnixStream>>, key: &KeyEvent) {
+    // Ctrl-C：任何时刻退出（Settings 页开关决定是否连带关闭 daemon；
+    // 开关关时只退 TUI、daemon 独立存活并在任务跑完后空闲自毁）。
     if key.modifiers.contains(KeyModifiers::CONTROL)
         && matches!(key.code, KeyCode::Char('c') | KeyCode::Char('C'))
     {
-        if let Some(c) = client.as_mut()
-            && c.call(methods::SYS_SHUTDOWN, serde_json::json!({}))
-                .await
-                .is_ok()
-        {
-            model.status_line = "已请求 daemon 停机（计算进程一并清理）".into();
-        }
-        model.quit = true;
+        request_exit(model, client).await;
         return;
     }
-
     // 输入模式优先
     match model.mode {
         InputMode::Filter => {
@@ -326,8 +357,31 @@ async fn handle_key(
         return;
     }
     match key.code {
-        KeyCode::Char('q') => model.quit = true,
-        KeyCode::Esc => model.quit = true,
+        KeyCode::Char('q') | KeyCode::Esc => request_exit(model, client).await,
+        // Settings 页：选中设置项后 ←/→ 切换其值（工程规范：
+        // 开关类选项统一左右方向键切换，见 docs/engineering-spec.md）
+        KeyCode::Left | KeyCode::Right if model.page == Page::Settings => {
+            let delta = if matches!(key.code, KeyCode::Right) {
+                1
+            } else {
+                -1
+            };
+            if model.settings_sel == 0 {
+                let new_val = delta > 0;
+                if new_val != model.exit_shuts_daemon {
+                    model.exit_shuts_daemon = new_val;
+                    if let Err(e) = save_tui_settings(model.exit_shuts_daemon) {
+                        model.status_line = format!("设置保存失败（本次会话仍生效）: {e}");
+                    } else {
+                        model.status_line = if model.exit_shuts_daemon {
+                            "退出时将同时关闭 daemon（计算进程一并清理）".into()
+                        } else {
+                            "退出仅关闭 TUI；daemon 任务跑完后空闲自毁".into()
+                        };
+                    }
+                }
+            }
+        }
         KeyCode::Char('?') => model.show_help = true,
         KeyCode::Char('/') => {
             model.input_buf = model.filter.clone();
@@ -858,6 +912,7 @@ async fn move_sel(model: &mut AppModel, client: Option<&mut Client<UnixStream>>,
             delta,
         ),
         Page::Instances => shift(&mut model.inst_sel, model.instances.len(), delta),
+        Page::Settings => shift(&mut model.settings_sel, SETTINGS_ITEMS.len(), delta),
         _ => {}
     }
 }
