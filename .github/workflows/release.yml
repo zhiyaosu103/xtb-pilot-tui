@@ -35,7 +35,7 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" xtbpilot-linux-x86_64.tar.gz \
             --repo "$GITHUB_REPOSITORY" \
-            --title "xTB-Pilot $GITHUB_REF_NAME" \
+            --title "xTB-Pilot-TUI $GITHUB_REF_NAME" \
             --notes "Prebuilt Linux x86_64 binaries (xtbp-tui + xtbp-daemon) with workflow templates.
 
           Install:
