@@ -3006,6 +3006,7 @@ dependencies = [
  "assert_cmd",
  "clap",
  "crossterm",
+ "libc",
  "predicates",
  "ratatui",
  "serde_json",

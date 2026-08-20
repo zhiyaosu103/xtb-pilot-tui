@@ -31,6 +31,15 @@ struct Args {
     /// token（UDS 默认不鉴权，与 daemon 一致）
     #[arg(long, default_value = "")]
     token: String,
+
+    /// daemon 未运行时自动拉起（面向人类用户的即输即用；daemon 独立存活，
+    /// 关闭 TUI 不中断计算）。--no-spawn 关闭
+    #[arg(long, default_value_t = false, action = clap::ArgAction::SetTrue)]
+    no_spawn: bool,
+
+    /// 自动拉起用的 daemon 可执行文件（PATH 查找或绝对路径）
+    #[arg(long, default_value = "xtbp-daemon")]
+    daemon: String,
 }
 
 /// 主循环事件。
@@ -58,6 +67,7 @@ async fn run(terminal: &mut DefaultTerminal, args: &Args) -> Result<()> {
     let uds = expand_tilde(&args.uds);
     let mut model = AppModel::default();
     let mut client: Option<Client<UnixStream>> = None;
+    let mut spawn_tried = false;
 
     // 键盘事件 → 通道（标准输入读取，不影响主循环阻塞点）
     let (key_tx, mut key_rx) = tokio::sync::mpsc::unbounded_channel::<KeyEvent>();
@@ -77,7 +87,8 @@ async fn run(terminal: &mut DefaultTerminal, args: &Args) -> Result<()> {
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {
-        // 断线重连（2s 间隔；成功后恢复订阅与视图）
+        // 断线重连（2s 间隔；成功后恢复订阅与视图）。
+        // daemon 不在时自动拉起一次（setsid 脱离会话，TUI 退出后继续存活）
         if client.is_none() {
             match connect_uds(&uds, &args.token).await {
                 Ok(c) => {
@@ -86,7 +97,22 @@ async fn run(terminal: &mut DefaultTerminal, args: &Args) -> Result<()> {
                 }
                 Err(e) => {
                     model.connected = false;
-                    model.status_line = format!("daemon 连接失败，2s 后重试: {e}");
+                    if !args.no_spawn && !spawn_tried {
+                        spawn_tried = true;
+                        match spawn_daemon(&args.daemon) {
+                            Ok(()) => {
+                                model.status_line =
+                                    "daemon 未运行，已自动拉起（启动约需 2-4 秒）…".into();
+                            }
+                            Err(se) => {
+                                model.status_line = format!(
+                                    "daemon 连接失败且自动拉起失败: {se}（用 --no-spawn 关闭）"
+                                );
+                            }
+                        }
+                    } else {
+                        model.status_line = format!("daemon 连接失败，2s 后重试: {e}");
+                    }
                 }
             }
         }
@@ -589,6 +615,32 @@ async fn load_structure(model: &mut AppModel, client: Option<&mut Client<UnixStr
     model.status_line = "未找到可用 xyz（任务未运行或产物缺失）".into();
 }
 
+/// 自动拉起 daemon（面向人类用户的即输即用）。
+///
+/// - `setsid` 脱离会话：关闭终端/TUI 后 daemon 继续存活（§2.1 关键决策）；
+/// - stdio 全空：daemon 有自己的滚动日志（~/.local/share/xtbpilot/logs）；
+/// - 环境继承自 TUI；XTB4STDAHOME 由 daemon 自身自动探测。
+fn spawn_daemon(binary: &str) -> std::io::Result<()> {
+    use std::os::unix::process::CommandExt;
+    let mut cmd = std::process::Command::new(binary);
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    // 子进程调用 setsid 成为新会话首进程，脱离终端
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    let child = cmd.spawn().map_err(|e| {
+        std::io::Error::new(e.kind(), format!("拉起 {binary} 失败（是否已安装？）: {e}"))
+    })?;
+    // 不 wait：daemon 由自己管理生命周期
+    let _ = child;
+    Ok(())
+}
+
 /// 测试辅助：状态颜色映射。
 #[cfg(test)]
 mod tests {
@@ -598,6 +650,13 @@ mod tests {
     fn cli_parses_uds_flag() {
         let args = Args::try_parse_from(["xtbp-tui", "--uds", "~/x.sock"]).unwrap();
         assert_eq!(args.uds, "~/x.sock");
+    }
+
+    #[test]
+    fn cli_parses_spawn_flags() {
+        let args = Args::try_parse_from(["xtbp-tui", "--no-spawn", "--daemon", "/tmp/xd"]).unwrap();
+        assert!(args.no_spawn);
+        assert_eq!(args.daemon, "/tmp/xd");
     }
 
     #[test]

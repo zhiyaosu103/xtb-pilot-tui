@@ -21,7 +21,33 @@ xtbp-tui (ratatui) ◄─UDS─► xtbp-daemon (tokio) ◄─TCP 127.0.0.1:7700�
 - **目录即真相**：每个任务一个自洽计算目录（input/ work/ output/），
   daemon 宕机后人可 `cd` 进去手动重跑 `cmd.txt`。
 
-## 快速开始
+## 安装与使用（面向人类用户，即输即用）
+
+```bash
+# 一次性安装（release 构建 → ~/.local/bin，本机已在 PATH 中）：
+./scripts/install.sh
+
+# 之后在 WSL 终端的任意目录直接输入即可：
+xtbp-tui
+# → daemon 未运行时会自动拉起（setsid 脱离终端，关闭 TUI/终端后计算不中断）；
+#   再次输入 xtbp-tui 秒连已有 daemon。Vim 键位：Tab 切页 / hjkl 移动 /
+#   Space 选中看 tail 与收敛曲线 / s 提交 / ? 帮助 / q 退出。
+# 老派用法（不自动拉起）：xtbp-tui --no-spawn
+
+# agent 侧（Windows 裸 socket 同构；token 在 ~/.xtbpilot/agent.json）：
+python3 tests/agent_smoke.py <token>
+```
+
+自动拉起特性：
+
+- TUI 启动时探测 UDS，连不上即拉起 `xtbp-daemon`（PATH 查找，可用
+  `--daemon <路径>` 指定）后自动重连，状态行提示「daemon 已自动拉起」；
+- 拉起的 daemon 继承终端环境，并自动探测 `XTB4STDAHOME`（
+  `~/opt/xtb4stda-1.0` 存在即启用）与 HOME 侧 sTDA 参数文件——**sTDA 工作流
+  开箱即用，无需手动 export**；
+- daemon 独立存活：关 TUI、关终端都不中断计算（§2.1 关键决策）。
+
+## 快速开始（开发模式）
 
 ```bash
 # 环境（已在本机验证）：conda env `xtbp`（xtb 6.7.1 / crest 3.0.2 / rdkit 2026.03.5）
@@ -30,13 +56,13 @@ xtbp-tui (ratatui) ◄─UDS─► xtbp-daemon (tokio) ◄─TCP 127.0.0.1:7700�
 cargo build --workspace
 
 # 1) 启动 daemon（agent 接口 + TUI 接口 + 自动组件发现 + token 落盘）
-XTB4STDAHOME=~/opt/xtb4stda-1.0 ./target/debug/xtbp-daemon
+./target/debug/xtbp-daemon
 #   → 监听 127.0.0.1:7700；token 写入 ~/.xtbpilot/agent.json（Windows 侧经 \\wsl$ 读取）
 
-# 2) TUI（Vim 键位：Tab 切页 / hjkl / Space 选中看 tail 与收敛曲线 / s 提交 / ? 帮助）
+# 2) TUI
 ./target/debug/xtbp-tui
 
-# 3) agent（裸 socket，见 tests/agent_smoke.py，Windows 侧同构）
+# 3) agent（裸 socket，Windows 侧同构）
 python3 tests/agent_smoke.py <token>
 ```
 

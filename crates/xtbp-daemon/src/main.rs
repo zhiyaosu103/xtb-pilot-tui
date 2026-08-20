@@ -110,6 +110,12 @@ async fn main() -> Result<()> {
     };
 
     init_tracing(&log_dir)?;
+
+    // XTB4STDAHOME 自动探测（§3.2 回退二进制约定目录）：
+    // 未显式 export 时按 ~/opt/xtb4stda-1.0 补上，sTDA 工作流开箱即用。
+    // 必须在 init_tracing 之后调用（探测日志需落盘），且早于 resolver 构建。
+    auto_detect_xtb4stdahome();
+
     info!(
         data_dir = %data_dir.display(),
         listen = %args.listen,
@@ -348,6 +354,27 @@ fn read_token_from_agent_json(path: &Path) -> Option<String> {
     let raw = std::fs::read_to_string(path).ok()?;
     let v = serde_json::from_str::<serde_json::Value>(&raw).ok()?;
     v.get("token").and_then(|t| t.as_str()).map(String::from)
+}
+
+/// XTB4STDAHOME 自动探测：未设置且 `~/opt/xtb4stda-1.0` 存在（回退二进制
+/// 约定目录，见 README）→ 注入进程环境。后续 resolver、参数文件同步、
+/// 子进程注入全部依赖它。
+fn auto_detect_xtb4stdahome() {
+    if std::env::var_os("XTB4STDAHOME").is_some() {
+        return;
+    }
+    let Ok(home) = std::env::var("HOME") else {
+        return;
+    };
+    let guess = Path::new(&home).join("opt/xtb4stda-1.0");
+    if guess.is_dir() {
+        // SAFETY：启动早期调用，进程内尚无任何并发环境读取者
+        // （resolver/参数同步均在本次写入之后才读取）。
+        unsafe {
+            std::env::set_var("XTB4STDAHOME", &guess);
+        }
+        info!(path = %guess.display(), "XTB4STDAHOME 自动探测并启用");
+    }
 }
 
 /// xtb4stda 参数文件兜底：它的默认路径是 `~/.param_stda{1,2}.xtb`（而非
