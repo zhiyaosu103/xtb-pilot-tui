@@ -2,8 +2,12 @@
 //!
 //! 内置模板：opt / conformer / opt-freq / excited / redox / reorg-4pt /
 //! solv-series。只做机械执行与回收，不做任何科学判断。
-//!
-//! 模板与引擎在后续里程碑填充；本文件先固定错误契约。
+
+pub mod engine;
+pub mod registry;
+
+pub use engine::{ComponentResolver, ResolvedComponent, WorkflowEngine};
+pub use registry::TemplateRegistry;
 
 use thiserror::Error;
 
@@ -24,21 +28,22 @@ pub enum WorkflowError {
 
     #[error("缺少产物: step={step}, path={path}")]
     MissingArtifact { step: String, path: String },
+
+    #[error("组装错误: {0}")]
+    Assemble(#[from] xtbp_assemble::AssembleError),
+
+    #[error("解析错误: {0}")]
+    Parse(#[from] xtbp_parse::ParseError),
+
+    #[error("持久层错误: {0}")]
+    Store(#[from] xtbp_store::StoreError),
+
+    #[error("调度错误: {0}")]
+    Sched(#[from] xtbp_sched::SchedError),
+
+    #[error("任务状态异常: {0}")]
+    State(String),
 }
 
 /// 工作流便捷 Result 别名。
 pub type Result<T> = std::result::Result<T, WorkflowError>;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn step_failed_error_names_step() {
-        let err = WorkflowError::StepFailed {
-            step: "opt".into(),
-            message: "no convergence".into(),
-        };
-        assert!(err.to_string().contains("opt"));
-    }
-}

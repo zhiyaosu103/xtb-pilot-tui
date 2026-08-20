@@ -77,6 +77,11 @@ impl InstanceRegistry {
         self.entries.iter().filter(move |e| e.name == name)
     }
 
+    /// 全部登记条目（任意组件）。
+    pub fn entries(&self) -> impl Iterator<Item = &ComponentEntry> {
+        self.entries.iter()
+    }
+
     /// 条目总数。
     pub fn len(&self) -> usize {
         self.entries.len()

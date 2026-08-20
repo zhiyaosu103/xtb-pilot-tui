@@ -1,0 +1,33 @@
+---
+source: crates/xtbp-parse/tests/parse_fixtures.rs
+expression: snapshot_json(&parsed)
+---
+{
+  "scalars": [
+    {
+      "key": "total_energy",
+      "value": -5.07020801,
+      "unit": "Eh",
+      "tier": "screening"
+    },
+    {
+      "key": "electronic_energy",
+      "value": -5.10166616,
+      "unit": "Eh",
+      "tier": "screening"
+    },
+    {
+      "key": "homo_lumo_gap",
+      "value": 14.15968868,
+      "unit": "eV",
+      "tier": "screening"
+    },
+    {
+      "key": "dipole",
+      "value": 2.2870749208855483,
+      "unit": "Debye",
+      "tier": "screening"
+    }
+  ],
+  "transitions": null
+}

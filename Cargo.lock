@@ -2837,6 +2837,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "toml",
  "tracing",
  "xtbp-core",
 ]
@@ -2868,15 +2869,22 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "csv",
  "futures",
+ "serde",
  "serde_json",
  "tokio",
  "tokio-util",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "which",
  "xtbp-api",
+ "xtbp-assemble",
  "xtbp-core",
+ "xtbp-sched",
+ "xtbp-store",
+ "xtbp-workflow",
 ]
 
 [[package]]
@@ -2959,12 +2967,21 @@ dependencies = [
 name = "xtbp-workflow"
 version = "0.1.0"
 dependencies = [
+ "csv",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror",
+ "tokio",
+ "tokio-util",
  "toml",
  "tracing",
+ "xtbp-api",
+ "xtbp-assemble",
  "xtbp-core",
+ "xtbp-parse",
+ "xtbp-sched",
+ "xtbp-store",
 ]
 
 [[package]]

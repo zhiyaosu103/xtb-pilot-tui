@@ -3,7 +3,18 @@
 //! 3D 生成经常驻 `rdkit_helper` 进程（stdio 换行 JSON 协议，§4.1）；
 //! 目录即真相：即使 daemon 宕机，人也可以 `cd` 进去手动重跑 `cmd.txt`。
 //!
-//! 组装逻辑在后续里程碑填充；本文件先固定错误契约。
+//! 模块分工：
+//! - [`helper`]：RDKit helper 常驻进程客户端（协议 v1）；
+//! - [`template`]：工作流模板占位符渲染；
+//! - [`assemble`]：计算目录生成。
+
+pub mod assemble;
+pub mod helper;
+pub mod template;
+
+pub use assemble::{Assembled, assemble};
+pub use helper::{Gen3dOutput, HelperClient};
+pub use template::{RenderCtx, RenderOutput, render_step};
 
 use thiserror::Error;
 
@@ -24,6 +35,9 @@ pub enum AssembleError {
 
     #[error("模板渲染错误: {message}")]
     Template { message: String },
+
+    #[error("序列化错误: {message}")]
+    Serialize { message: String },
 }
 
 /// 组装器便捷 Result 别名。

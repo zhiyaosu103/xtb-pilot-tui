@@ -1,0 +1,37 @@
+# redox：中性/阳离子/阴离子三态优化（ALPB 溶剂）；IP/EA 由用户自行换算
+# 三个分支共享 gen3d；电荷/多重度由工作流引擎按分支覆盖（0,+1,-1）
+id = "redox"
+description = "中性/阳离子/阴离子三态 opt（ALPB），三点能量与结构"
+
+[[steps]]
+id = "gen3d"
+component = "rdkit"
+command = ["gen3d", "{smiles}", "{charge}", "{mult}"]
+outputs = ["mol.xyz"]
+
+[[steps]]
+id = "opt-neutral"
+component = "xtb"
+depends_on = ["gen3d"]
+command = ["xtb", "{input_xyz}", "--opt", "tight", "--chrg", "0", "--uhf", "1", "{method_flags}"]
+inputs = ["mol.xyz"]
+outputs = ["xtbopt.xyz", "xtb.out"]
+collect = [{ file = "xtb.out", parser = "xtb-json" }]
+
+[[steps]]
+id = "opt-cation"
+component = "xtb"
+depends_on = ["gen3d"]
+command = ["xtb", "{input_xyz}", "--opt", "tight", "--chrg", "1", "--uhf", "2", "{method_flags}"]
+inputs = ["mol.xyz"]
+outputs = ["xtbopt.xyz", "xtb.out"]
+collect = [{ file = "xtb.out", parser = "xtb-json" }]
+
+[[steps]]
+id = "opt-anion"
+component = "xtb"
+depends_on = ["gen3d"]
+command = ["xtb", "{input_xyz}", "--opt", "tight", "--chrg", "-1", "--uhf", "2", "{method_flags}"]
+inputs = ["mol.xyz"]
+outputs = ["xtbopt.xyz", "xtb.out"]
+collect = [{ file = "xtb.out", parser = "xtb-json" }]

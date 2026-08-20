@@ -1,0 +1,43 @@
+---
+source: crates/xtbp-parse/tests/parse_fixtures.rs
+expression: snapshot_json(&parsed)
+---
+{
+  "scalars": [
+    {
+      "key": "first_excitation_energy",
+      "value": 5.181,
+      "unit": "eV",
+      "tier": "screening"
+    },
+    {
+      "key": "first_wavelength",
+      "value": 239.3,
+      "unit": "nm",
+      "tier": "screening"
+    }
+  ],
+  "transitions": [
+    {
+      "state": 1,
+      "energy_ev": 5.181,
+      "wavelength_nm": 239.3,
+      "oscillator_strength": 0.0,
+      "assignment": "10→12 / 9→11"
+    },
+    {
+      "state": 2,
+      "energy_ev": 6.63,
+      "wavelength_nm": 187.0,
+      "oscillator_strength": 0.0,
+      "assignment": "10→13"
+    },
+    {
+      "state": 3,
+      "energy_ev": 6.63,
+      "wavelength_nm": 187.0,
+      "oscillator_strength": 0.0,
+      "assignment": "9→13"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+# xTB-Pilot 内置工作流模板（设计文档 §3.4）
+# 占位符：{smiles} {charge} {mult} {threads} {input_xyz} {solvent} {method_flags}
+# 以及 extra 参数：{nconf} {sigma_ev}
+# 步骤失败策略：abort（终止整链）/ skip（跳过该分支）
+
+id = "opt"
+description = "gen3d → GFN2-xTB 几何优化（tight）"
+
+[[steps]]
+id = "gen3d"
+component = "rdkit"
+command = ["gen3d", "{smiles}", "{charge}", "{mult}"]
+outputs = ["mol.xyz"]
+
+[[steps]]
+id = "opt"
+component = "xtb"
+depends_on = ["gen3d"]
+command = ["xtb", "{input_xyz}", "--opt", "tight", "--chrg", "{charge}", "--uhf", "{mult}"]
+inputs = ["mol.xyz"]
+outputs = ["xtbopt.xyz", "xtb.out"]
+collect = [{ file = "xtb.out", parser = "xtb-json" }]

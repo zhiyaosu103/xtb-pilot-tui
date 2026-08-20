@@ -7,11 +7,21 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+tokio.workspace = true
+tokio-util.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 toml.workspace = true
+csv.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 xtbp-core = { path = "../xtbp-core" }
+xtbp-store = { path = "../xtbp-store" }
+xtbp-parse = { path = "../xtbp-parse" }
+xtbp-assemble = { path = "../xtbp-assemble" }
+xtbp-sched = { path = "../xtbp-sched" }
+xtbp-api = { path = "../xtbp-api" }
 
 [dev-dependencies]
 tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }

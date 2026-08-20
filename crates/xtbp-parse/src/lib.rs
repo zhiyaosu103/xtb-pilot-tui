@@ -4,7 +4,11 @@
 //! 文本解析仅作回退；解析失败 ≠ job 失败——标记 `ParseDegraded`、
 //! 保留原始文件。每个组件×版本配 insta 快照 fixtures。
 //!
-//! 具体解析器在后续里程碑填充；本文件先固定错误契约。
+//! 具体解析器实现见 [`parsers`]；本文件固定错误契约。
+
+pub mod parsers;
+
+pub use parsers::*;
 
 use thiserror::Error;
 
@@ -22,6 +26,14 @@ pub enum ParseError {
 
     #[error("无法解释的输出: {what}")]
     Unexpected { what: String },
+
+    /// 解析器键上下文：错误消息包含解析器键，便于上层定位退化来源。
+    #[error("解析器 {parser} 解析失败: {source}")]
+    Parser {
+        parser: String,
+        #[source]
+        source: Box<ParseError>,
+    },
 }
 
 /// 解析器便捷 Result 别名。

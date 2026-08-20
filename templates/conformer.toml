@@ -1,0 +1,18 @@
+# conformer：gen3d → CREST 构象搜索（GFN2，nconf 默认 20）
+id = "conformer"
+description = "gen3d → CREST(GFN2) 构象搜索"
+
+[[steps]]
+id = "gen3d"
+component = "rdkit"
+command = ["gen3d", "{smiles}", "{charge}", "{mult}"]
+outputs = ["mol.xyz"]
+
+[[steps]]
+id = "crest"
+component = "crest"
+depends_on = ["gen3d"]
+command = ["crest", "{input_xyz}", "--gfn", "2", "--nconf", "{nconf}", "--T", "4", "--chrg", "{charge}", "--uhf", "{mult}"]
+inputs = ["mol.xyz"]
+outputs = ["crest_best.xyz", "crest_conformers.xyz", "crest_property.json"]
+collect = [{ file = "crest_property.json", parser = "crest-property" }]

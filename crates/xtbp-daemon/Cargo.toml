@@ -1,6 +1,6 @@
 [package]
 name = "xtbp-daemon"
-description = "xTB-Pilot 常驻守护进程：拉起 rdkit helper、调度 xtb 任务、提供 NDJSON over TCP 接口"
+description = "xTB-Pilot 常驻守护进程：拉起 rdkit helper、调度 xtb 任务、提供 NDJSON over TCP/UDS 接口"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -19,9 +19,16 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-appender.workspace = true
 clap.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+csv.workspace = true
+which.workspace = true
 xtbp-core = { path = "../xtbp-core" }
+xtbp-store = { path = "../xtbp-store" }
+xtbp-sched = { path = "../xtbp-sched" }
 xtbp-api = { path = "../xtbp-api" }
+xtbp-assemble = { path = "../xtbp-assemble" }
+xtbp-workflow = { path = "../xtbp-workflow" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

@@ -1,0 +1,47 @@
+# reorg-4pt：四点法重组能（中性 opt、离子 opt、两个交叉单点）
+# 四个能量点入 results；λ_h/λ_e 由后处理机械计算（不做判断）
+# 交叉单点用 --sp 读对方优化结构（步骤 inputs 指向对方步骤产物）
+id = "reorg-4pt"
+description = "四点法重组能：中性/离子 opt + 交叉单点"
+
+[[steps]]
+id = "gen3d"
+component = "rdkit"
+command = ["gen3d", "{smiles}", "0", "1"]
+outputs = ["mol.xyz"]
+
+[[steps]]
+id = "opt-neutral"
+component = "xtb"
+depends_on = ["gen3d"]
+command = ["xtb", "{input_xyz}", "--opt", "tight", "--chrg", "0", "--uhf", "1", "{method_flags}"]
+inputs = ["mol.xyz"]
+outputs = ["xtbopt.xyz", "xtb.out"]
+collect = [{ file = "xtb.out", parser = "xtb-json" }]
+
+[[steps]]
+id = "opt-ion"
+component = "xtb"
+depends_on = ["gen3d"]
+command = ["xtb", "{input_xyz}", "--opt", "tight", "--chrg", "1", "--uhf", "2", "{method_flags}"]
+inputs = ["mol.xyz"]
+outputs = ["xtbopt.xyz", "xtb.out"]
+collect = [{ file = "xtb.out", parser = "xtb-json" }]
+
+[[steps]]
+id = "sp-ion-at-neutral"
+component = "xtb"
+depends_on = ["opt-neutral", "opt-ion"]
+command = ["xtb", "{input_xyz}", "--sp", "--chrg", "1", "--uhf", "2", "{method_flags}"]
+inputs = ["opt-neutral:xtbopt.xyz"]
+outputs = ["xtb.out"]
+collect = [{ file = "xtb.out", parser = "xtb-json" }]
+
+[[steps]]
+id = "sp-neutral-at-ion"
+component = "xtb"
+depends_on = ["opt-neutral", "opt-ion"]
+command = ["xtb", "{input_xyz}", "--sp", "--chrg", "0", "--uhf", "1", "{method_flags}"]
+inputs = ["opt-ion:xtbopt.xyz"]
+outputs = ["xtb.out"]
+collect = [{ file = "xtb.out", parser = "xtb-json" }]

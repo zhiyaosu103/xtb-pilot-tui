@@ -1,0 +1,36 @@
+# excited：opt → xtb4stda（GFN 轨道）→ stda（sTDA-xTB 激发态）
+# 运行要求：XTB4STDAHOME 指向含 .param_stda1/2.xtb 的目录（见 README）
+id = "excited"
+description = "opt → xtb4stda → stda（sTDA-xTB 垂直激发）"
+
+[[steps]]
+id = "gen3d"
+component = "rdkit"
+command = ["gen3d", "{smiles}", "{charge}", "{mult}"]
+outputs = ["mol.xyz"]
+
+[[steps]]
+id = "opt"
+component = "xtb"
+depends_on = ["gen3d"]
+command = ["xtb", "{input_xyz}", "--opt", "tight", "--chrg", "{charge}", "--uhf", "{mult}"]
+inputs = ["mol.xyz"]
+outputs = ["xtbopt.xyz", "xtb.out"]
+collect = [{ file = "xtb.out", parser = "xtb-json" }]
+
+[[steps]]
+id = "orbitals"
+component = "xtb4stda"
+depends_on = ["opt"]
+command = ["xtb4stda", "{input_xyz}"]
+inputs = ["xtbopt.xyz"]
+outputs = ["wfn.xtb", "stda.in"]
+
+[[steps]]
+id = "stda"
+component = "stda"
+depends_on = ["orbitals"]
+command = ["stda", "-xtb", "wfn.xtb"]
+inputs = ["wfn.xtb"]
+outputs = ["tda.dat"]
+collect = [{ file = "tda.dat", parser = "tda-dat" }]

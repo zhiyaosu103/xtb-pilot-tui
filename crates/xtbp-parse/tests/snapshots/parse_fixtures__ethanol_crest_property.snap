@@ -1,0 +1,51 @@
+---
+source: crates/xtbp-parse/tests/parse_fixtures.rs
+expression: snapshot_json(&parsed)
+---
+{
+  "scalars": [
+    {
+      "key": "conf_energy_0",
+      "value": -11.39433937,
+      "unit": "Eh",
+      "tier": "screening"
+    },
+    {
+      "key": "conf_population_0",
+      "value": 0.9625,
+      "unit": "",
+      "tier": "screening"
+    },
+    {
+      "key": "conf_energy_1",
+      "value": -11.39186743,
+      "unit": "Eh",
+      "tier": "screening"
+    },
+    {
+      "key": "conf_population_1",
+      "value": 0.03518,
+      "unit": "",
+      "tier": "screening"
+    },
+    {
+      "key": "conf_energy_2",
+      "value": -11.39033579,
+      "unit": "Eh",
+      "tier": "screening"
+    },
+    {
+      "key": "conf_population_2",
+      "value": 0.00232,
+      "unit": "",
+      "tier": "screening"
+    },
+    {
+      "key": "n_conformers",
+      "value": 3.0,
+      "unit": "",
+      "tier": "screening"
+    }
+  ],
+  "transitions": null
+}

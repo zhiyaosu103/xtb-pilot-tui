@@ -1,0 +1,27 @@
+# opt-freq：优化 → --ohess 振动频率（虚频计数只报数，不做判断）
+id = "opt-freq"
+description = "opt → GFN2-xTB 频率（--ohess）"
+
+[[steps]]
+id = "gen3d"
+component = "rdkit"
+command = ["gen3d", "{smiles}", "{charge}", "{mult}"]
+outputs = ["mol.xyz"]
+
+[[steps]]
+id = "opt"
+component = "xtb"
+depends_on = ["gen3d"]
+command = ["xtb", "{input_xyz}", "--opt", "tight", "--chrg", "{charge}", "--uhf", "{mult}"]
+inputs = ["mol.xyz"]
+outputs = ["xtbopt.xyz", "xtb.out"]
+collect = [{ file = "xtb.out", parser = "xtb-json" }]
+
+[[steps]]
+id = "freq"
+component = "xtb"
+depends_on = ["opt"]
+command = ["xtb", "{input_xyz}", "--ohess", "--chrg", "{charge}", "--uhf", "{mult}"]
+inputs = ["xtbopt.xyz"]
+outputs = ["xtb.out"]
+collect = [{ file = "xtb.out", parser = "xtb-json" }]

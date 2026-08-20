@@ -1,0 +1,20 @@
+# solv-series：同一结构多溶剂 ALPB 单点
+# 溶剂列表由参数覆盖（params.extra.solvents = ["water","toluene","thf"]）——
+# 工作流引擎按溶剂数展开此步骤为多个子任务
+id = "solv-series"
+description = "同一结构多溶剂 ALPB 单点（能量表）"
+
+[[steps]]
+id = "gen3d"
+component = "rdkit"
+command = ["gen3d", "{smiles}", "{charge}", "{mult}"]
+outputs = ["mol.xyz"]
+
+[[steps]]
+id = "solv-sp"
+component = "xtb"
+depends_on = ["gen3d"]
+command = ["xtb", "{input_xyz}", "--sp", "--chrg", "{charge}", "--uhf", "{mult}", "--alpb", "{solvent}"]
+inputs = ["mol.xyz"]
+outputs = ["xtb.out"]
+collect = [{ file = "xtb.out", parser = "xtb-json" }]

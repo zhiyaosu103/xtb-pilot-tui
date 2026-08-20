@@ -1,0 +1,15 @@
+---
+source: crates/xtbp-parse/tests/parse_fixtures.rs
+expression: snapshot_json(&parsed)
+---
+{
+  "scalars": [
+    {
+      "key": "n_atoms",
+      "value": 3.0,
+      "unit": "",
+      "tier": "screening"
+    }
+  ],
+  "transitions": null
+}
