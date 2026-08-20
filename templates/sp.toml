@@ -1,0 +1,19 @@
+# xTB-Pilot 内置工作流模板：gen3d → GFN2-xTB 单点能（--sp）
+# 单点能不做几何优化，直接读 gen3d 结构算总能量（screening 级）
+id = "sp"
+description = "gen3d → GFN2-xTB 单点能（--sp，gas）"
+
+[[steps]]
+id = "gen3d"
+component = "rdkit"
+command = ["gen3d", "{smiles}", "{charge}", "{mult}"]
+outputs = ["mol.xyz"]
+
+[[steps]]
+id = "sp"
+component = "xtb"
+depends_on = ["gen3d"]
+command = ["xtb", "{input_xyz}", "--sp", "--json", "--chrg", "{charge}", "--uhf", "{mult}"]
+inputs = ["mol.xyz"]
+outputs = ["xtbout.json"]
+collect = [{ file = "xtbout.json", parser = "xtb-json" }]

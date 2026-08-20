@@ -150,6 +150,7 @@ impl WorkflowTemplate {
 /// 内置模板清单（id 列表，TOML 本体在仓库 templates/ 目录）。
 pub const BUILTIN_TEMPLATES: &[&str] = &[
     "opt",
+    "sp",
     "conformer",
     "opt-freq",
     "excited",
@@ -240,8 +241,9 @@ depends_on = ["a"]
 
     #[test]
     fn builtin_templates_all_registered() {
-        assert_eq!(BUILTIN_TEMPLATES.len(), 7);
+        assert_eq!(BUILTIN_TEMPLATES.len(), 8);
         assert!(BUILTIN_TEMPLATES.contains(&"excited"));
+        assert!(BUILTIN_TEMPLATES.contains(&"sp"));
     }
 
     #[test]

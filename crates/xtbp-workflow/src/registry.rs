@@ -62,13 +62,13 @@ impl TemplateRegistry {
 mod tests {
     use super::*;
 
-    /// 仓库根 templates/ 目录（7 个内置模板全部可解析、可校验）。
+    /// 仓库根 templates/ 目录（8 个内置模板全部可解析、可校验）。
     #[test]
     fn builtin_templates_are_valid() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../templates");
         let reg = TemplateRegistry::load_dir(&dir).unwrap();
         let ids = reg.ids();
-        assert_eq!(ids.len(), 7, "内置模板应恰好 7 个: {ids:?}");
+        assert_eq!(ids.len(), 8, "内置模板应恰好 8 个: {ids:?}");
         for id in xtbp_core::BUILTIN_TEMPLATES {
             assert!(ids.contains(id), "缺少内置模板: {id}");
         }

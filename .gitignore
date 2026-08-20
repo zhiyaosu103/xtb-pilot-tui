@@ -14,3 +14,6 @@ __pycache__/
 .idea/
 .vscode/
 *.swp
+
+# 批处理演练产物（results/batch-<ts>/summary.md 等）
+/results/

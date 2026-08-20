@@ -76,6 +76,7 @@ python3 tests/agent_smoke.py <token>
 | P3 工作流 | 7 内置模板 + DAG；4CzIPN `excited` 全链产出光谱 | ✅（见下） |
 | P4 agent 接口 | TCP NDJSON、token、订阅、schema 导出；裸 socket 闭环 | ✅ `tests/agent_smoke.py` 全通过；`xtbp-daemon api-schema` 输出全部方法 JSON-Schema |
 | P5 导出与硬化 | CSV/JSON/zip 导出、资源令牌、WSL 自检、kill -9 红线 | ✅ `tests/redline_test.py` 全通过 |
+| P6 TUI 交互 | PTY 模拟真实用户会话 + 批处理并行调度实弹 | ✅ `tests/tui_interaction.py` 9 场景全过；`tests/batch_parallel.py` 21 分子 × 3 工作流 = 63 任务（见下） |
 
 **红线实测**：`kill -9` daemon 后重启——数据库完好（WAL）、无僵尸进程、任务状态可解释
 （Running/Queued → `interrupted`，可取消收口）；`--data-dir /mnt/c/...` 一律拒绝启动。
@@ -98,11 +99,25 @@ conda-forge 缺失的 xtb4stda / stda 用 grimme-lab 预编译二进制 + 参数
 
 ## 内置工作流（`templates/*.toml`）
 
-`opt`（gen3d→GFN2 opt）· `conformer`（CREST 构象）· `opt-freq`（--ohess 频率）·
-`excited`（opt→xtb4stda→stda，展宽谱）· `redox`（三态 opt）· `reorg-4pt`（四点法 λ_h/λ_e）·
-`solv-series`（多溶剂 ALPB 单点，`params.extra.solvents` 展开）。
+`opt`（gen3d→GFN2 opt）· `sp`（gen3d→GFN2 单点能 --sp）· `conformer`（CREST 构象）·
+`opt-freq`（--ohess 频率）· `excited`（opt→xtb4stda→stda，展宽谱）· `redox`（三态 opt）·
+`reorg-4pt`（四点法 λ_h/λ_e）· `solv-series`（多溶剂 ALPB 单点，`params.extra.solvents` 展开）。
 提交形态：`job.submit { molecule_id|smiles, workflow, params?, priority?, dry_run? }`；
 同 (SMILES, 工作流, 参数) 内容哈希幂等——重复提交直接复用结果。
+
+## TUI 交互与批处理演练（P6）
+
+- **`tests/tui_interaction.py`**：PTY 中拉起真实 `xtbp-tui`，注入键序列模拟完整用户会话
+  （帮助 `?` / Tab 八页切换 / `/` 过滤 / `s` 输入 SMILES 提交 / `j k`、`Home End`、
+  `PgUp PgDn` 移动与翻页 / `Space` 详情与 tail / `c` 取消排队与运行中任务 /
+  `q` 退出且 daemon 独立存活 / `Ctrl-C` 退出），内置 ANSI 网格仿真器做屏幕断言。
+  曾揪出并修复：Ctrl-C 未实现（帮助文案与行为不符）、过滤态选中索引错位
+  （详情/取消打到错误任务）、`q` 退出后进程僵死（键盘读取任务阻塞 tokio worker
+  导致 Runtime::drop 等待）、任务列表混入工作流子步骤（对其按 `c` 会失败整条工作流）。
+- **`tests/batch_parallel.py`**：21 个 CSD 含硼分子 × `sp`/`excited`/`reorg-4pt` = 63 任务
+  一次全量提交（隔离 daemon、4 并发槽、优先级 0/1/2），事件流统计峰值并发与
+  优先级序，真实 TUI 全程在线采样 Dashboard 的 q/r 统计，终态后汇总
+  每分子 E_sp / E_vert / λ_h / λ_e 到 `results/batch-<ts>/summary.md`。
 
 ## 输出解析（设计文档 §4.2 脆弱性对策）
 
@@ -114,10 +129,12 @@ stda 的跃迁表（在 stdout，tda.dat 是 DATXY 谱数据）。实测 fixture
 ## 测试
 
 ```bash
-cargo test --workspace                 # 领域/存储/协议/调度/解析/渲染 等 130+ 测试
+cargo test --workspace                 # 领域/存储/协议/调度/解析/渲染 等 140+ 测试
 conda run -n xtbp python python/rdkit_helper/test_helper.py   # helper 协议 6 测试
 python3 tests/agent_smoke.py <token>   # P4 端到端（真实 xtb 计算）
 python3 tests/redline_test.py          # P5 红线（kill -9 / /mnt/c，隔离实例）
+python3 tests/tui_interaction.py       # P6 TUI 真实交互模拟（PTY + 屏幕断言）
+python3 tests/batch_parallel.py        # P6 批处理并行调度实弹（63 任务 + TUI 监控）
 ```
 
 ## 环境基线

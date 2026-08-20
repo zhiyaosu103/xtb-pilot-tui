@@ -79,6 +79,8 @@ pub struct JobView {
     pub parse_degraded: bool,
     pub workdir: Option<String>,
     pub exit_code: Option<i64>,
+    /// 父任务 id（Some = 工作流内部子步骤，不在 TUI 任务列表展示）。
+    pub parent_id: Option<String>,
 }
 
 impl JobView {
@@ -109,7 +111,16 @@ impl JobView {
                 .unwrap_or(false),
             workdir: v.get("workdir").and_then(|x| x.as_str()).map(String::from),
             exit_code: v.get("exit_code").and_then(|x| x.as_i64()),
+            parent_id: v
+                .get("parent_id")
+                .and_then(|x| x.as_str())
+                .map(String::from),
         })
+    }
+
+    /// 是否为工作流内部子步骤（列表展示与取消一律以父任务为单位）。
+    pub fn is_child(&self) -> bool {
+        self.parent_id.as_deref().is_some_and(|p| !p.is_empty())
     }
 }
 
@@ -254,9 +265,12 @@ impl Default for AppModel {
 }
 
 impl AppModel {
-    /// 当前页选中任务 id。
+    /// 当前页选中任务 id（经过滤列表索引——列表渲染/移动以过滤后为准，
+    /// 否则过滤状态下详情/取消会指向未过滤列表里的错误任务）。
     pub fn selected_job_id(&self) -> Option<&str> {
-        self.jobs.get(self.jobs_sel).map(|j| j.id.as_str())
+        self.filtered_jobs()
+            .get(self.jobs_sel)
+            .map(|j| j.id.as_str())
     }
 
     /// 过滤后的任务列表（Jobs 页）。
@@ -360,5 +374,50 @@ impl AppModel {
             "queued" => ratatui::style::Color::Gray,
             _ => ratatui::style::Color::White,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn job(id: &str, workflow: &str, status: &str) -> JobView {
+        let v: serde_json::Value = serde_json::json!({
+            "id": id, "workflow": workflow, "status": status,
+            "molecule_id": "M", "created_at": 0,
+        });
+        JobView::from_json(&v).unwrap()
+    }
+
+    #[test]
+    fn selected_job_respects_active_filter() {
+        let m = AppModel {
+            jobs: vec![job("AAA", "opt", "done"), job("BBB", "sp", "running")],
+            filter: "running".into(),
+            jobs_sel: 0,
+            ..Default::default()
+        };
+        assert_eq!(m.selected_job_id(), Some("BBB"));
+    }
+
+    #[test]
+    fn selected_job_without_filter_maps_directly() {
+        let m = AppModel {
+            jobs: vec![job("AAA", "opt", "done"), job("BBB", "sp", "running")],
+            jobs_sel: 1,
+            ..Default::default()
+        };
+        assert_eq!(m.selected_job_id(), Some("BBB"));
+    }
+
+    #[test]
+    fn children_are_flagged_for_list_filtering() {
+        let v: serde_json::Value = serde_json::json!({
+            "id": "CH", "workflow": "opt", "status": "running",
+            "molecule_id": "M", "created_at": 0, "parent_id": "P",
+        });
+        let j = JobView::from_json(&v).unwrap();
+        assert!(j.is_child());
+        assert!(!job("X", "opt", "done").is_child());
     }
 }

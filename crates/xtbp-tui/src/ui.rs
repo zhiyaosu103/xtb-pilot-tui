@@ -60,9 +60,9 @@ fn draw_status_line(frame: &mut Frame, model: &AppModel, area: Rect) {
         ("○", Color::LightRed)
     };
     let mode_hint = match model.mode {
-        InputMode::Normal => "hjkl 移动 · Tab 切页 · / 过滤 · ? 帮助 · q 退出",
-        InputMode::Filter => "输入过滤词，Enter 应用，Esc 取消",
-        InputMode::Smiles => "输入 SMILES，Enter 提交，Esc 取消",
+        InputMode::Normal => "hjkl 移动 · Tab 切页 · / 过滤 · ? 帮助 · q/Ctrl-C 退出",
+        InputMode::Filter => "输入过滤词，Enter 应用，Esc 取消，Ctrl-C 退出",
+        InputMode::Smiles => "输入 SMILES，Enter 提交，Esc 取消，Ctrl-C 退出",
     };
     let status = if model.status_line.is_empty() {
         mode_hint.to_string()
@@ -488,7 +488,8 @@ fn draw_workflows(frame: &mut Frame, model: &mut AppModel, area: Rect) {
     let cols =
         Layout::horizontal([Constraint::Percentage(45), Constraint::Percentage(55)]).split(area);
     let wfs = xtbp_core::BUILTIN_TEMPLATES;
-    model.wf_sel = model.wf_sel.min(wfs.len() - 1);
+    // 提交表单的选中与列表高亮保持同步（move_sel 走 form.workflow）
+    model.wf_sel = model.form.workflow.min(wfs.len() - 1);
     let items: Vec<ListItem> = wfs
         .iter()
         .enumerate()
@@ -511,6 +512,7 @@ fn draw_workflows(frame: &mut Frame, model: &mut AppModel, area: Rect) {
 
     let desc = match wfs.get(model.wf_sel) {
         Some(&"opt") => "gen3d → GFN2-xTB 优化（tight）：能量、HL gap、偶极矩",
+        Some(&"sp") => "gen3d → GFN2-xTB 单点能（--sp，gas）",
         Some(&"conformer") => "gen3d → CREST 构象搜索（能量、布居）",
         Some(&"opt-freq") => "opt → --ohess 频率（热力学校正、虚频计数）",
         Some(&"excited") => "opt → xtb4stda → stda：垂直激发能、振子强度、展宽谱",
@@ -639,7 +641,7 @@ fn draw_settings(frame: &mut Frame, model: &AppModel, area: Rect) {
 }
 
 fn draw_help(frame: &mut Frame, area: Rect) {
-    let popup = centered_rect(area, 62, 14);
+    let popup = centered_rect(area, 66, 16);
     let text = vec![
         Line::from(Span::styled(
             "xTB-Pilot 键位帮助",
@@ -648,12 +650,13 @@ fn draw_help(frame: &mut Frame, area: Rect) {
         Line::from(""),
         Line::from("Tab / Shift+Tab   页面切换        g        刷新（重新拉取列表）"),
         Line::from("j k / ↑ ↓         列表移动        Space    选中任务看详情"),
+        Line::from("Home / End         列表首 / 尾     PgUp/PgDn 翻页"),
         Line::from("/                 过滤（Enter 应用，Esc 取消）"),
         Line::from("s                 工作流页输入 SMILES / 提交"),
         Line::from("c                 Jobs 页取消选中任务"),
         Line::from("◂ ►（←/→）        Structure 页旋转点云"),
         Line::from("o                 Structure 页唤起 Windows 查看器"),
-        Line::from("?                 本帮助        q / Esc  退出"),
+        Line::from("?                 本帮助        q / Esc / Ctrl-C  退出"),
         Line::from(""),
         Line::from(Span::styled(
             "任何时刻 Ctrl-C 或 q 退出；daemon 独立运行，关 TUI 不中断计算。",

@@ -69,9 +69,12 @@ async fn run(terminal: &mut DefaultTerminal, args: &Args) -> Result<()> {
     let mut client: Option<Client<UnixStream>> = None;
     let mut spawn_tried = false;
 
-    // 键盘事件 → 通道（标准输入读取，不影响主循环阻塞点）
+    // 键盘事件 → 通道（标准输入读取，不影响主循环阻塞点）。
+    // 必须用 std 线程而非 tokio::spawn：crossterm poll/read 是阻塞调用，
+    // 挂在 tokio worker 上会让 Runtime::drop 等待该 worker 完成当前任务而
+    // 永不退出（q 后进程僵住，实测复现）。std 线程随进程退出由 OS 回收。
     let (key_tx, mut key_rx) = tokio::sync::mpsc::unbounded_channel::<KeyEvent>();
-    tokio::spawn(async move {
+    std::thread::spawn(move || {
         loop {
             if crossterm::event::poll(Duration::from_millis(50)).unwrap_or(false)
                 && let Ok(crossterm::event::Event::Key(key)) = crossterm::event::read()
@@ -169,6 +172,14 @@ async fn run(terminal: &mut DefaultTerminal, args: &Args) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 async fn handle_key(model: &mut AppModel, client: Option<&mut Client<UnixStream>>, key: &KeyEvent) {
+    // Ctrl-C：任何时刻退出（与帮助文案一致；优先于一切页面/输入模式键位）
+    if key.modifiers.contains(KeyModifiers::CONTROL)
+        && matches!(key.code, KeyCode::Char('c') | KeyCode::Char('C'))
+    {
+        model.quit = true;
+        return;
+    }
+
     // 输入模式优先
     match model.mode {
         InputMode::Filter => {
@@ -250,7 +261,66 @@ async fn handle_key(model: &mut AppModel, client: Option<&mut Client<UnixStream>
         KeyCode::Right | KeyCode::Char('l') => move_sel(model, client, 1).await,
         KeyCode::Up | KeyCode::Char('k') => move_sel(model, client, -1).await,
         KeyCode::Down | KeyCode::Char('j') => move_sel(model, client, 1).await,
+        KeyCode::Home => jump_sel(model, client, JumpTarget::First).await,
+        KeyCode::End => jump_sel(model, client, JumpTarget::Last).await,
+        KeyCode::PageUp => jump_sel(model, client, JumpTarget::PageUp).await,
+        KeyCode::PageDown => jump_sel(model, client, JumpTarget::PageDown).await,
         _ => {}
+    }
+}
+
+/// 跳转目标（Home/End/PgUp/PgDn）。
+#[derive(Debug, Clone, Copy)]
+enum JumpTarget {
+    First,
+    Last,
+    PageUp,
+    PageDown,
+}
+
+/// 一页的行数（PgUp/PgDn 跳转步长）。
+const JUMP_PAGE: usize = 10;
+
+/// 跳转选中（按页分发；Spectra 页附带重载）。
+async fn jump_sel(model: &mut AppModel, client: Option<&mut Client<UnixStream>>, to: JumpTarget) {
+    match model.page {
+        Page::Jobs => {
+            let len = model.filtered_jobs_len();
+            model.jobs_sel = jump_index(model.jobs_sel, len, to);
+        }
+        Page::Molecules => {
+            let len = model.filtered_molecules_len();
+            model.mols_sel = jump_index(model.mols_sel, len, to);
+        }
+        Page::Spectra => {
+            let len = model.spectra_candidates().len();
+            model.spec_sel = jump_index(model.spec_sel, len, to);
+            load_spectrum(model, client).await;
+        }
+        Page::Workflows => {
+            let len = xtbp_core::BUILTIN_TEMPLATES.len();
+            let idx = jump_index(model.form.workflow, len, to);
+            model.form.workflow = idx;
+            model.wf_sel = idx;
+        }
+        Page::Instances => {
+            let len = model.instances.len();
+            model.inst_sel = jump_index(model.inst_sel, len, to);
+        }
+        _ => {}
+    }
+}
+
+/// 计算跳转后的选中索引（clamp 到 [0, len-1]）。
+fn jump_index(cur: usize, len: usize, to: JumpTarget) -> usize {
+    if len == 0 {
+        return 0;
+    }
+    match to {
+        JumpTarget::First => 0,
+        JumpTarget::Last => len - 1,
+        JumpTarget::PageUp => cur.saturating_sub(JUMP_PAGE),
+        JumpTarget::PageDown => (cur + JUMP_PAGE).min(len - 1),
     }
 }
 
@@ -338,7 +408,15 @@ async fn refresh_lists(model: &mut AppModel, client: Option<&mut Client<UnixStre
     if let Ok(v) = client.call(methods::JOB_LIST, serde_json::json!({})).await {
         model.jobs = v
             .as_array()
-            .map(|a| a.iter().filter_map(JobView::from_json).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(JobView::from_json)
+                    // 只展示工作流任务（父任务）：子步骤是 DAG 内部执行单元，
+                    // 其输出已镜像进父任务 tail；列表展示子任务会让 "任务数"
+                    // 翻倍，且对其按 c 取消会失败（而非取消）整个工作流。
+                    .filter(|j| !j.is_child())
+                    .collect()
+            })
             .unwrap_or_default();
         let today = xtbp_core::time::now_unix() - 86_400;
         model.today_done = model
@@ -677,5 +755,67 @@ mod tests {
         });
         let j = JobView::from_json(&v).unwrap();
         assert_eq!(j.status, "running");
+    }
+
+    fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        KeyEvent::new(code, modifiers)
+    }
+
+    #[tokio::test]
+    async fn ctrl_c_quits_in_normal_mode() {
+        let mut m = AppModel::default();
+        handle_key(
+            &mut m,
+            None,
+            &key(KeyCode::Char('c'), KeyModifiers::CONTROL),
+        )
+        .await;
+        assert!(m.quit, "Ctrl-C 在 Normal 模式应退出");
+    }
+
+    #[tokio::test]
+    async fn ctrl_c_quits_in_filter_and_smiles_modes() {
+        for mode in [InputMode::Filter, InputMode::Smiles] {
+            let mut m = AppModel {
+                mode,
+                ..Default::default()
+            };
+            handle_key(
+                &mut m,
+                None,
+                &key(KeyCode::Char('c'), KeyModifiers::CONTROL),
+            )
+            .await;
+            assert!(m.quit, "Ctrl-C 在 {mode:?} 模式应退出");
+        }
+    }
+
+    #[tokio::test]
+    async fn plain_c_on_jobs_page_cancels_not_quits() {
+        let mut m = AppModel {
+            page: Page::Jobs,
+            ..Default::default()
+        };
+        handle_key(&mut m, None, &key(KeyCode::Char('c'), KeyModifiers::NONE)).await;
+        assert!(!m.quit, "普通 c 是取消而非退出");
+    }
+
+    #[tokio::test]
+    async fn plain_q_quits() {
+        let mut m = AppModel::default();
+        handle_key(&mut m, None, &key(KeyCode::Char('q'), KeyModifiers::NONE)).await;
+        assert!(m.quit);
+    }
+
+    #[test]
+    fn jump_index_bounds() {
+        assert_eq!(jump_index(0, 0, JumpTarget::First), 0);
+        assert_eq!(jump_index(0, 0, JumpTarget::Last), 0);
+        assert_eq!(jump_index(5, 20, JumpTarget::First), 0);
+        assert_eq!(jump_index(5, 20, JumpTarget::Last), 19);
+        assert_eq!(jump_index(5, 20, JumpTarget::PageUp), 0);
+        assert_eq!(jump_index(5, 20, JumpTarget::PageDown), 15);
+        assert_eq!(jump_index(18, 20, JumpTarget::PageDown), 19);
+        assert_eq!(jump_index(0, 3, JumpTarget::PageUp), 0);
     }
 }
