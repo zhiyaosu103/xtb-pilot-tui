@@ -1,4 +1,4 @@
-# xTB-Pilot
+# xTB-Pilot-TUI
 
 [![CI](https://github.com/zhiyaosu103/xtb-pilot-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/zhiyaosu103/xtb-pilot-tui/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#许可证)
@@ -6,7 +6,7 @@
 
 [English](README.md) · **中文**
 
-xTB-Pilot 是一个基于 Rust 开发的计算编排工具与 TUI 界面，用于在 WSL / Linux 环境下调度与管理 **xtb 计算化学工具链**（xtb、CREST、xTB4sTDA、sTDA）。
+xTB-Pilot-TUI 是一个基于 Rust 开发的计算编排工具与 TUI 界面，用于在 WSL / Linux 环境下调度与管理 **xtb 计算化学工具链**（xtb、CREST、xTB4sTDA、sTDA）。
 
 系统采用守护进程架构：用户可通过终端 TUI 交互监控，外部 Agent / 脚本可通过 TCP 接口（JSON-RPC 2.0）进行批量提交与结果提取。
 
