@@ -1,0 +1,7 @@
+# 统一文本换行符：入库 LF，检出随平台
+* text=auto
+
+# 锁文件 / 解析快照按文本对待（LF，便于 diff 与合并）
+Cargo.lock text eol=lf
+*.snap text eol=lf
+*.snap.new text eol=lf

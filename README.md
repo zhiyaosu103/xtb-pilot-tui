@@ -1,8 +1,12 @@
 # xTB-Pilot
 
+[![CI](https://github.com/zhiyaosu103/xtb-pilot-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/zhiyaosu103/xtb-pilot-tui/actions/workflows/ci.yml)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#许可证)
+[![Rust 1.97.1](https://img.shields.io/badge/rust-1.97.1-orange.svg)](Cargo.toml)
+
 基于 Rust 的 TUI 应用：在 WSL 上编排 **xtb 及其生态组件**（xtb、CREST、xTB4sTDA + stda，可选 QCG / aISS）。
 **人（TUI）和 agent（TCP 接口）都能方便地提交、监控、回收 xtb 家族计算**，并对结果做持久化与导出。
-纯流水线工具：不做任何科学判断，只忠实执行与回收（设计文档 v0.2，本仓库已实现 P0–P5）。
+纯流水线工具：不做任何科学判断，只忠实执行与回收（设计文档 v0.2，本仓库已实现 P0–P6）。
 
 ## 架构一览（设计文档 §2.2 十 crate 布局）
 
@@ -155,3 +159,14 @@ python3 tests/batch_parallel.py        # P6 批处理并行调度实弹（63 任
   留待后续里程碑；
 - TUI 配置页展示只读（配置热重载待后续）；MCP 预留为 xtbp-api 薄封装扩展点；
 - QCG / aISS 只登记实例不接工作流。
+
+## 参与开发
+
+- 开发红线、分支/PR 流程与端到端测试清单见 [CONTRIBUTING.md](CONTRIBUTING.md)；
+- 里程碑变更记录见 [CHANGELOG.md](CHANGELOG.md)；
+- CI（`cargo fmt` / `clippy -D warnings` / workspace 测试 / rdkit_helper 协议测试）
+  定义于 `.github/workflows/ci.yml`。
+
+## 许可证
+
+MIT OR Apache-2.0（双许可，见 [LICENSE-MIT](LICENSE-MIT) 与 [LICENSE-APACHE](LICENSE-APACHE)）。
