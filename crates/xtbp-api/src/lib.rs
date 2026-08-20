@@ -8,6 +8,6 @@ pub mod dispatch;
 pub mod frame;
 pub mod protocol;
 
-pub use dispatch::{dispatch, Handler};
+pub use dispatch::{Handler, dispatch};
 pub use frame::{read_frame, write_frame};
-pub use protocol::{api_schema, Request, Response};
+pub use protocol::{Request, Response, api_schema};

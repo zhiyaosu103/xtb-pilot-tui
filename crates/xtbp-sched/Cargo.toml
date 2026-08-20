@@ -1,0 +1,18 @@
+[package]
+name = "xtbp-sched"
+description = "xTB-Pilot 调度器：队列、并发槽、内存令牌、重试、崩溃恢复"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio.workspace = true
+futures.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+serde.workspace = true
+xtbp-core = { path = "../xtbp-core" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

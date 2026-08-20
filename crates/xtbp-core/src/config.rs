@@ -104,7 +104,10 @@ mod tests {
 
     #[test]
     fn expand_tilde_helper() {
-        assert_eq!(expand_tilde("~/x"), format!("{}/x", std::env::var("HOME").unwrap()));
+        assert_eq!(
+            expand_tilde("~/x"),
+            format!("{}/x", std::env::var("HOME").unwrap())
+        );
         assert_eq!(expand_tilde("/abs/path"), "/abs/path");
     }
 }

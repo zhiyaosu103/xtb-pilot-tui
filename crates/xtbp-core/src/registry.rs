@@ -136,7 +136,11 @@ mod tests {
     fn register_rejects_missing_file() {
         let mut reg = InstanceRegistry::new();
         let err = reg
-            .register("xtb", "6.7.1".parse().unwrap(), PathBuf::from("/nonexistent"))
+            .register(
+                "xtb",
+                "6.7.1".parse().unwrap(),
+                PathBuf::from("/nonexistent"),
+            )
             .unwrap_err();
         assert!(err.to_string().contains("不存在"));
     }

@@ -10,7 +10,10 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "method", content = "params")]
 pub enum Request {
     /// 提交一个计算任务（xtb/crest/sTDA 等，payload 由 daemon 解释）。
-    Submit { task: String, payload: serde_json::Value },
+    Submit {
+        task: String,
+        payload: serde_json::Value,
+    },
     /// 查询任务状态。
     Status { job_id: String },
     /// 健康检查。
@@ -22,7 +25,10 @@ pub enum Request {
 #[serde(tag = "status", content = "payload")]
 pub enum Response {
     /// 成功。
-    Ok { job_id: String, data: serde_json::Value },
+    Ok {
+        job_id: String,
+        data: serde_json::Value,
+    },
     /// 失败。
     Err { message: String },
 }

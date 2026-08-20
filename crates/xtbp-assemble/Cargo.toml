@@ -1,0 +1,19 @@
+[package]
+name = "xtbp-assemble"
+description = "xTB-Pilot 计算文件组装：RDKit helper 客户端、模板渲染、计算目录生成"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+xtbp-core = { path = "../xtbp-core" }
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }

@@ -3,8 +3,8 @@
 //! 刻意不引 jsonrpsee/tarpc（规划文档 §2.2）：协议只有「一行一请求」，
 //! 手写帧约百行。
 
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt};
 
 /// 写出一个 NDJSON 帧（JSON 一行 + 换行，并 flush）。
@@ -57,13 +57,23 @@ mod tests {
     #[tokio::test]
     async fn frame_roundtrip() {
         let mut buf = Vec::new();
-        write_frame(&mut buf, &Ping { method: "ping".into() })
-            .await
-            .unwrap();
+        write_frame(
+            &mut buf,
+            &Ping {
+                method: "ping".into(),
+            },
+        )
+        .await
+        .unwrap();
         assert!(buf.ends_with(b"\n"));
         let mut reader = BufReader::new(&buf[..]);
         let got: Ping = read_frame(&mut reader).await.unwrap().unwrap();
-        assert_eq!(got, Ping { method: "ping".into() });
+        assert_eq!(
+            got,
+            Ping {
+                method: "ping".into()
+            }
+        );
     }
 
     #[tokio::test]
@@ -77,9 +87,14 @@ mod tests {
     async fn frame_tolerates_blank_lines() {
         let mut buf = Vec::new();
         buf.extend_from_slice(b"\n");
-        write_frame(&mut buf, &Ping { method: "ping".into() })
-            .await
-            .unwrap();
+        write_frame(
+            &mut buf,
+            &Ping {
+                method: "ping".into(),
+            },
+        )
+        .await
+        .unwrap();
         let mut reader = BufReader::new(&buf[..]);
         let got: Ping = read_frame(&mut reader).await.unwrap().unwrap();
         assert_eq!(got.method, "ping");

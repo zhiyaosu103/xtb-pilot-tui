@@ -2826,10 +2826,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "xtbp-assemble"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "xtbp-core",
+]
+
+[[package]]
 name = "xtbp-core"
 version = "0.1.0"
 dependencies = [
- "csv",
  "directories",
  "insta",
  "semver",
@@ -2837,7 +2849,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "shellexpand",
- "sqlx",
  "tempfile",
  "thiserror",
  "tokio",
@@ -2865,6 +2876,58 @@ dependencies = [
 ]
 
 [[package]]
+name = "xtbp-parse"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tracing",
+ "xtbp-core",
+]
+
+[[package]]
+name = "xtbp-runner"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "xtbp-core",
+]
+
+[[package]]
+name = "xtbp-sched"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "serde",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "xtbp-core",
+]
+
+[[package]]
+name = "xtbp-store"
+version = "0.1.0"
+dependencies = [
+ "csv",
+ "serde",
+ "sha2",
+ "sqlx",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "xtbp-core",
+]
+
+[[package]]
 name = "xtbp-tui"
 version = "0.1.0"
 dependencies = [
@@ -2878,6 +2941,18 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tui-input",
+ "xtbp-core",
+]
+
+[[package]]
+name = "xtbp-workflow"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tempfile",
+ "thiserror",
+ "toml",
+ "tracing",
  "xtbp-core",
 ]
 

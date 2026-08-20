@@ -1,0 +1,17 @@
+[package]
+name = "xtbp-workflow"
+description = "xTB-Pilot 流水线 DAG：内置工作流模板（TOML）执行"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+xtbp-core = { path = "../xtbp-core" }
+
+[dev-dependencies]
+tempfile.workspace = true

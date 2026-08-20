@@ -1,6 +1,6 @@
 [package]
 name = "xtbp-core"
-description = "xTB-Pilot 核心库：组件登记（InstanceRegistry）、配置、ID、哈希与 SQLite/CSV 持久层"
+description = "xTB-Pilot 核心库：领域模型（Molecule/Job/Workflow/Result/Method）、组件登记（InstanceRegistry）、配置、ID 与哈希"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -17,8 +17,6 @@ ulid.workspace = true
 semver.workspace = true
 sha2.workspace = true
 which.workspace = true
-sqlx.workspace = true
-csv.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

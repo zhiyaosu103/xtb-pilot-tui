@@ -7,6 +7,12 @@
 resolver = "3"
 members = [
     "crates/xtbp-core",
+    "crates/xtbp-store",
+    "crates/xtbp-runner",
+    "crates/xtbp-parse",
+    "crates/xtbp-workflow",
+    "crates/xtbp-sched",
+    "crates/xtbp-assemble",
     "crates/xtbp-api",
     "crates/xtbp-tui",
     "crates/xtbp-daemon",

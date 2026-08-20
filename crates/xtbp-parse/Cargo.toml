@@ -1,0 +1,17 @@
+[package]
+name = "xtbp-parse"
+description = "xTB-Pilot 输出解析：xtb json/stdout、crest、stda（insta fixtures 快照）"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+xtbp-core = { path = "../xtbp-core" }
+
+[dev-dependencies]
+insta.workspace = true

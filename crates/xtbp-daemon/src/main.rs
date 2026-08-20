@@ -15,7 +15,7 @@ use tokio::signal;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 use xtbp_api::protocol::{Request, Response};
-use xtbp_api::{frame, Handler};
+use xtbp_api::{Handler, frame};
 
 #[derive(Parser, Debug)]
 #[command(name = "xtbp-daemon", version, about = "xTB-Pilot 常驻守护进程")]

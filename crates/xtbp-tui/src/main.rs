@@ -9,8 +9,8 @@ use ratatui::layout::{Constraint, Layout};
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::{DefaultTerminal, Frame};
 use std::time::Duration;
-use tui_input::backend::crossterm::EventHandler;
 use tui_input::Input;
+use tui_input::backend::crossterm::EventHandler;
 
 #[derive(Parser, Debug)]
 #[command(name = "xtbp-tui", version, about = "xTB-Pilot 终端界面")]
@@ -46,12 +46,11 @@ fn run(terminal: &mut DefaultTerminal, args: Args) -> Result<()> {
     };
     while !app.quit {
         terminal.draw(|frame| draw(frame, &mut app))?;
-        if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    app.on_key(key);
-                }
-            }
+        if event::poll(Duration::from_millis(100))?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            app.on_key(key);
         }
     }
     Ok(())
@@ -70,11 +69,7 @@ impl App {
 }
 
 fn draw(frame: &mut Frame, app: &mut App) {
-    let chunks = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Min(3),
-    ])
-    .split(frame.area());
+    let chunks = Layout::vertical([Constraint::Length(1), Constraint::Min(3)]).split(frame.area());
 
     frame.render_widget(
         Paragraph::new("xTB-Pilot — q/Esc 退出 · 下方为输入框"),

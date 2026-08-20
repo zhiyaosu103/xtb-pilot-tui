@@ -14,15 +14,6 @@ pub enum CoreError {
     #[error("IO 错误: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("SQLite 错误: {0}")]
-    Sqlx(#[from] sqlx::Error),
-
-    #[error("SQLite 迁移错误: {0}")]
-    Migrate(#[from] sqlx::migrate::MigrateError),
-
-    #[error("CSV 错误: {0}")]
-    Csv(#[from] csv::Error),
-
     #[error("TOML 解析错误: {0}")]
     Toml(#[from] toml::de::Error),
 

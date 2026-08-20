@@ -1,0 +1,20 @@
+[package]
+name = "xtbp-store"
+description = "xTB-Pilot 持久层：SQLite（sqlx）+ 文件仓布局 + 迁移"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+sqlx.workspace = true
+csv.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+xtbp-core = { path = "../xtbp-core" }
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
