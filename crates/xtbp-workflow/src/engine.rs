@@ -360,14 +360,22 @@ impl WorkflowEngine {
             .variant
             .clone()
             .or_else(|| job.params.method.solvent.as_ref().map(|s| s.0.clone()));
+        // 溶剂名由 variant（如 solv-series 的 extra.solvents 展开）提供时，
+        // method_flags 不再生成溶剂 flag（避免与模板 {solvent_model} {solvent}
+        // 重复）；其余场景保持 method.solvent 原样。
+        let mut render_method = job.params.method.clone();
+        if state.variant.is_some() {
+            render_method.solvent = None;
+        }
         let ctx = RenderCtx {
             smiles: &mol.smiles,
             charge,
             mult,
             threads: job.params.threads,
-            method: &job.params.method,
+            method: &render_method,
             input_xyz: &input_xyz,
             solvent: solvent_name.as_deref(),
+            solvation: render_method.solvation,
         };
         let rendered = render_step(&step_rendered, &ctx)?;
 
@@ -769,6 +777,7 @@ impl WorkflowEngine {
             method: &job.params.method,
             input_xyz: "mol.xyz",
             solvent: solvent.as_deref(),
+            solvation: job.params.method.solvation,
         };
         let rendered = render_step(&first_rendered, &ctx)?;
         let lines = [

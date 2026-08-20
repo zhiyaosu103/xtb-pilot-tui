@@ -63,6 +63,15 @@ fn draw_status_line(frame: &mut Frame, model: &AppModel, area: Rect) {
         InputMode::Normal => "hjkl 移动 · Tab 切页 · / 过滤 · ? 帮助 · q/Ctrl-C 退出",
         InputMode::Filter => "输入过滤词，Enter 应用，Esc 取消，Ctrl-C 退出",
         InputMode::Smiles => "输入 SMILES，Enter 提交，Esc 取消，Ctrl-C 退出",
+        InputMode::SmiPath => "输入 .smi 文件路径，Enter 批量导入，Esc 取消",
+        InputMode::Solvent => "输入溶剂名（如 water/toluene/thf），Enter 应用",
+        InputMode::Number(field) => match field {
+            crate::model::NumberField::Etemp => "输入电子温度 K（如 500），Enter 应用",
+            crate::model::NumberField::Accuracy => "输入 SCF 精度（如 0.5），Enter 应用",
+            crate::model::NumberField::Maxiter => "输入 SCF 最大迭代（如 250），Enter 应用",
+            crate::model::NumberField::Charge => "输入电荷（如 -1/0/1），Enter 应用",
+            crate::model::NumberField::Multiplicity => "输入多重度（如 1/2/3），Enter 应用",
+        },
     };
     let status = if model.status_line.is_empty() {
         mode_hint.to_string()
@@ -525,18 +534,63 @@ fn draw_workflows(frame: &mut Frame, model: &mut AppModel, area: Rect) {
         InputMode::Smiles => format!("{}▏", model.input_buf),
         _ => model.form.smiles.clone(),
     };
+    let fam = crate::model::FAMILY_LABELS[model.form.family.min(3)];
+    let solv = crate::model::SOLVATION_LABELS[model.form.solvation.min(2)];
+    let solv_name = if model.form.solvation > 0 {
+        model.form.solvent.as_str()
+    } else {
+        "-"
+    };
+    let etemp = model
+        .form
+        .etemp
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "缺省(300K)".into());
+    let acc = model
+        .form
+        .accuracy
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "缺省(1.0)".into());
+    let maxiter = model
+        .form
+        .maxiter
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "缺省".into());
     let lines = vec![
         Line::from(""),
         Line::from(desc),
         Line::from(""),
         Line::from(Span::styled(
-            "SMILES（s 输入 / Enter 提交）",
+            "SMILES（Enter/s 输入 · 提交）",
             Style::default().fg(Color::DarkGray),
         )),
         Line::from(Span::styled(smi, Style::default().fg(Color::LightYellow))),
         Line::from(""),
-        Line::from("电荷 0 · 多重度 1 · GFN2-xTB · 优先级 0（交互）"),
-        Line::from("提交后 Jobs 页可实时监控；sTDA 谱在 Spectra 页"),
+        Line::from(Span::styled(
+            format!("计算水平 [ ]: {fam}"),
+            Style::default().fg(Color::LightCyan),
+        )),
+        Line::from(Span::styled(
+            format!("溶剂模型 {{ }}: {solv} · 溶剂 e: {solv_name}"),
+            Style::default().fg(Color::LightCyan),
+        )),
+        Line::from(Span::styled(
+            format!("etemp t: {etemp} · acc a: {acc} · maxiter m: {maxiter}"),
+            Style::default().fg(Color::LightCyan),
+        )),
+        Line::from(Span::styled(
+            format!(
+                "电荷 c: {} · 多重度 n: {}",
+                model.form.charge, model.form.multiplicity
+            ),
+            Style::default().fg(Color::LightCyan),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "i: 批量导入 .smi（当前参数逐行提交）",
+            Style::default().fg(Color::DarkGray),
+        )),
+        Line::from("提交后 Jobs 页实时监控；sTDA 谱在 Spectra 页"),
     ];
     frame.render_widget(
         Paragraph::new(lines)
@@ -641,7 +695,7 @@ fn draw_settings(frame: &mut Frame, model: &AppModel, area: Rect) {
 }
 
 fn draw_help(frame: &mut Frame, area: Rect) {
-    let popup = centered_rect(area, 66, 16);
+    let popup = centered_rect(area, 66, 20);
     let text = vec![
         Line::from(Span::styled(
             "xTB-Pilot 键位帮助",
@@ -652,10 +706,19 @@ fn draw_help(frame: &mut Frame, area: Rect) {
         Line::from("j k / ↑ ↓         列表移动        Space    选中任务看详情"),
         Line::from("Home / End         列表首 / 尾     PgUp/PgDn 翻页"),
         Line::from("/                 过滤（Enter 应用，Esc 取消）"),
-        Line::from("s                 工作流页输入 SMILES / 提交"),
-        Line::from("c                 Jobs 页取消选中任务"),
-        Line::from("◂ ►（←/→）        Structure 页旋转点云"),
-        Line::from("o                 Structure 页唤起 Windows 查看器"),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Workflows 页提交表单：",
+            Style::default().add_modifier(Modifier::BOLD),
+        )),
+        Line::from("Enter / s     输入 SMILES 并提交      i      批量导入 .smi 文件"),
+        Line::from(
+            "[ ]            切换计算水平（GFN2/1/0/FF）  { }  切换溶剂模型（气相/ALPB/GBSA）",
+        ),
+        Line::from("e              溶剂名        t/a/m     etemp/accuracy/maxiter"),
+        Line::from("c / n          电荷 / 多重度"),
+        Line::from(""),
+        Line::from("c（Jobs 页）   取消选中任务        o（Structure 页）外部查看器"),
         Line::from("?                 本帮助        q / Esc / Ctrl-C  退出"),
         Line::from(""),
         Line::from(Span::styled(

@@ -105,6 +105,7 @@ fn render_first_command(
         method: &params.method,
         input_xyz: "mol.xyz",
         solvent: params.method.solvent.as_ref().map(|s| s.0.as_str()),
+        solvation: params.method.solvation,
     };
     Ok(render_step(step, &ctx)?.command)
 }

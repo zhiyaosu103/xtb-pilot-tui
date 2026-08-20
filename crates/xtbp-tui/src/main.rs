@@ -11,7 +11,10 @@ mod ui;
 use anyhow::Result;
 use clap::Parser;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use model::{AppModel, InputMode, JobView, Page, QueueStats};
+use model::{
+    AppModel, FAMILY_LABELS, FAMILY_NAMES, InputMode, JobView, NumberField, Page, QueueStats,
+    SOLVATION_LABELS, SOLVATION_NAMES,
+};
 use ratatui::DefaultTerminal;
 use std::time::Duration;
 use tokio::net::UnixStream;
@@ -63,8 +66,23 @@ async fn main() -> Result<()> {
     result
 }
 
+/// 从 `~/.xtbpilot/agent.json` 自动发现 token（daemon 每次启动都会落盘）。
+/// 人类用户直接输入 `xtbp-tui` 无需手动传 --token（UDS 本就不鉴权，
+/// 此兜底保证未来 UDS 恢复鉴权时 TUI 仍可用）。
+fn discover_token() -> Option<String> {
+    let raw = std::fs::read_to_string(expand_tilde("~/.xtbpilot/agent.json")).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    v.get("token").and_then(|t| t.as_str()).map(String::from)
+}
+
 async fn run(terminal: &mut DefaultTerminal, args: &Args) -> Result<()> {
     let uds = expand_tilde(&args.uds);
+    // token：CLI 显式 > agent.json 自动发现 > 空（UDS 不鉴权）
+    let token = if args.token.is_empty() {
+        discover_token().unwrap_or_default()
+    } else {
+        args.token.clone()
+    };
     let mut model = AppModel::default();
     let mut client: Option<Client<UnixStream>> = None;
     let mut spawn_tried = false;
@@ -93,7 +111,7 @@ async fn run(terminal: &mut DefaultTerminal, args: &Args) -> Result<()> {
         // 断线重连（2s 间隔；成功后恢复订阅与视图）。
         // daemon 不在时自动拉起一次（setsid 脱离会话，TUI 退出后继续存活）
         if client.is_none() {
-            match connect_uds(&uds, &args.token).await {
+            match connect_uds(&uds, &token).await {
                 Ok(c) => {
                     client = Some(c);
                     on_connected(&mut model, client.as_mut().unwrap()).await;
@@ -222,6 +240,71 @@ async fn handle_key(model: &mut AppModel, client: Option<&mut Client<UnixStream>
             }
             return;
         }
+        InputMode::SmiPath => {
+            match key.code {
+                KeyCode::Esc => {
+                    model.input_buf.clear();
+                    model.mode = InputMode::Normal;
+                }
+                KeyCode::Backspace => {
+                    model.input_buf.pop();
+                }
+                KeyCode::Enter => {
+                    let path = model.input_buf.trim().to_string();
+                    model.input_buf.clear();
+                    model.mode = InputMode::Normal;
+                    import_smi(model, client, &path).await;
+                }
+                KeyCode::Char(c) => model.input_buf.push(c),
+                _ => {}
+            }
+            return;
+        }
+        InputMode::Solvent => {
+            match key.code {
+                KeyCode::Esc => {
+                    model.input_buf.clear();
+                    model.mode = InputMode::Normal;
+                }
+                KeyCode::Backspace => {
+                    model.input_buf.pop();
+                }
+                KeyCode::Enter => {
+                    let solv = model.input_buf.trim().to_string();
+                    model.input_buf.clear();
+                    model.mode = InputMode::Normal;
+                    if solv.is_empty() {
+                        model.status_line = "溶剂名不能为空（先切到 ALPB/GBSA 模型）".into();
+                    } else {
+                        model.form.solvent = solv;
+                        model.status_line = format!("溶剂: {}", model.form.solvent);
+                    }
+                }
+                KeyCode::Char(c) => model.input_buf.push(c),
+                _ => {}
+            }
+            return;
+        }
+        InputMode::Number(field) => {
+            match key.code {
+                KeyCode::Esc => {
+                    model.input_buf.clear();
+                    model.mode = InputMode::Normal;
+                }
+                KeyCode::Backspace => {
+                    model.input_buf.pop();
+                }
+                KeyCode::Enter => {
+                    let text = model.input_buf.trim().to_string();
+                    model.input_buf.clear();
+                    model.mode = InputMode::Normal;
+                    apply_number_field(model, field, &text);
+                }
+                KeyCode::Char(c) => model.input_buf.push(c),
+                _ => {}
+            }
+            return;
+        }
         InputMode::Normal => {}
     }
 
@@ -241,10 +324,72 @@ async fn handle_key(model: &mut AppModel, client: Option<&mut Client<UnixStream>
             switch_page(model, client, key.modifiers.contains(KeyModifiers::SHIFT)).await
         }
         KeyCode::Char('g') => refresh_lists(model, client).await,
+        // ---- Workflows 页：提交表单 ----
+        KeyCode::Enter if model.page == Page::Workflows => {
+            model.input_buf = model.form.smiles.clone();
+            model.mode = InputMode::Smiles;
+        }
         KeyCode::Char('s') if model.page == Page::Workflows => {
             model.input_buf = model.form.smiles.clone();
             model.mode = InputMode::Smiles;
         }
+        KeyCode::Char('i') if model.page == Page::Workflows => {
+            model.input_buf.clear();
+            model.mode = InputMode::SmiPath;
+        }
+        KeyCode::Char('e') if model.page == Page::Workflows => {
+            model.input_buf = model.form.solvent.clone();
+            model.mode = InputMode::Solvent;
+        }
+        KeyCode::Char('t') if model.page == Page::Workflows => {
+            model.input_buf = model.form.etemp.map(|v| v.to_string()).unwrap_or_default();
+            model.mode = InputMode::Number(NumberField::Etemp);
+        }
+        KeyCode::Char('a') if model.page == Page::Workflows => {
+            model.input_buf = model
+                .form
+                .accuracy
+                .map(|v| v.to_string())
+                .unwrap_or_default();
+            model.mode = InputMode::Number(NumberField::Accuracy);
+        }
+        KeyCode::Char('m') if model.page == Page::Workflows => {
+            model.input_buf = model
+                .form
+                .maxiter
+                .map(|v| v.to_string())
+                .unwrap_or_default();
+            model.mode = InputMode::Number(NumberField::Maxiter);
+        }
+        KeyCode::Char('c') if model.page == Page::Workflows => {
+            model.input_buf = model.form.charge.to_string();
+            model.mode = InputMode::Number(NumberField::Charge);
+        }
+        KeyCode::Char('n') if model.page == Page::Workflows => {
+            model.input_buf = model.form.multiplicity.to_string();
+            model.mode = InputMode::Number(NumberField::Multiplicity);
+        }
+        KeyCode::Char('[') if model.page == Page::Workflows => {
+            let n = FAMILY_NAMES.len();
+            model.form.family = (model.form.family + n - 1) % n;
+            model.status_line = format!("计算水平: {}", FAMILY_LABELS[model.form.family]);
+        }
+        KeyCode::Char(']') if model.page == Page::Workflows => {
+            let n = FAMILY_NAMES.len();
+            model.form.family = (model.form.family + 1) % n;
+            model.status_line = format!("计算水平: {}", FAMILY_LABELS[model.form.family]);
+        }
+        KeyCode::Char('{') if model.page == Page::Workflows => {
+            let n = SOLVATION_NAMES.len();
+            model.form.solvation = (model.form.solvation + n - 1) % n;
+            model.status_line = format!("溶剂模型: {}", SOLVATION_LABELS[model.form.solvation]);
+        }
+        KeyCode::Char('}') if model.page == Page::Workflows => {
+            let n = SOLVATION_NAMES.len();
+            model.form.solvation = (model.form.solvation + 1) % n;
+            model.status_line = format!("溶剂模型: {}", SOLVATION_LABELS[model.form.solvation]);
+        }
+        // ---- 其他页面 ----
         KeyCode::Char('c') if model.page == Page::Jobs => cancel_selected(model, client).await,
         KeyCode::Char('o') if model.page == Page::Structure => {
             if let Some(p) = &model.xyz_path {
@@ -266,6 +411,49 @@ async fn handle_key(model: &mut AppModel, client: Option<&mut Client<UnixStream>
         KeyCode::PageUp => jump_sel(model, client, JumpTarget::PageUp).await,
         KeyCode::PageDown => jump_sel(model, client, JumpTarget::PageDown).await,
         _ => {}
+    }
+}
+
+/// 应用数值输入到表单字段（解析失败给出状态行提示，不改值）。
+fn apply_number_field(model: &mut AppModel, field: NumberField, text: &str) {
+    match field {
+        NumberField::Etemp => match text.parse::<f64>() {
+            Ok(v) => {
+                model.form.etemp = Some(v);
+                model.status_line = format!("etemp: {v} K");
+            }
+            Err(_) => model.status_line = format!("etemp 解析失败: {text:?}（应为数字，如 500）"),
+        },
+        NumberField::Accuracy => match text.parse::<f64>() {
+            Ok(v) => {
+                model.form.accuracy = Some(v);
+                model.status_line = format!("accuracy: {v}");
+            }
+            Err(_) => {
+                model.status_line = format!("accuracy 解析失败: {text:?}（应为数字，如 0.5）")
+            }
+        },
+        NumberField::Maxiter => match text.parse::<u32>() {
+            Ok(v) => {
+                model.form.maxiter = Some(v);
+                model.status_line = format!("maxiter: {v}");
+            }
+            Err(_) => model.status_line = format!("maxiter 解析失败: {text:?}（应为整数，如 250）"),
+        },
+        NumberField::Charge => match text.parse::<i8>() {
+            Ok(v) => {
+                model.form.charge = v;
+                model.status_line = format!("电荷: {v}");
+            }
+            Err(_) => model.status_line = format!("电荷解析失败: {text:?}（应为整数，如 -1/0/1）"),
+        },
+        NumberField::Multiplicity => match text.parse::<u8>() {
+            Ok(v) => {
+                model.form.multiplicity = v;
+                model.status_line = format!("多重度: {v}");
+            }
+            Err(_) => model.status_line = format!("多重度解析失败: {text:?}（应为整数，如 1/2）"),
+        },
     }
 }
 
@@ -545,10 +733,11 @@ async fn submit_job(model: &mut AppModel, client: Option<&mut Client<UnixStream>
         .min(xtbp_core::BUILTIN_TEMPLATES.len() - 1)];
     let params = serde_json::json!({
         "smiles": smiles,
-        "charge": 0,
-        "multiplicity": 1,
+        "charge": model.form.charge,
+        "multiplicity": model.form.multiplicity,
         "workflow": workflow,
         "priority": 0,
+        "params": model.form.to_params_json(),
     });
     match client.call(methods::JOB_SUBMIT, params).await {
         Ok(v) => {
@@ -567,6 +756,50 @@ async fn submit_job(model: &mut AppModel, client: Option<&mut Client<UnixStream>
             model.status_line = format!("提交失败: {code}: {e}");
         }
     }
+}
+
+/// 批量导入 .smi 文件（Workflows 页 `i`）：每行一个 SMILES（可带名称），
+/// 以当前表单参数逐个提交当前工作流；`#`/空行/无字母行跳过。
+async fn import_smi(model: &mut AppModel, client: Option<&mut Client<UnixStream>>, path: &str) {
+    let Some(client) = client else { return };
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) => {
+            model.status_line = format!("读取 .smi 失败: {path}: {e}");
+            return;
+        }
+    };
+    let rows = chem::parse_smi(&text);
+    if rows.is_empty() {
+        model.status_line = format!("{path}: 未找到有效 SMILES 行");
+        return;
+    }
+    let workflow = xtbp_core::BUILTIN_TEMPLATES[model
+        .form
+        .workflow
+        .min(xtbp_core::BUILTIN_TEMPLATES.len() - 1)];
+    let mut submitted = 0usize;
+    let mut failed = 0usize;
+    for (smiles, _name) in &rows {
+        let params = serde_json::json!({
+            "smiles": smiles,
+            "charge": model.form.charge,
+            "multiplicity": model.form.multiplicity,
+            "workflow": workflow,
+            "priority": 0,
+            "params": model.form.to_params_json(),
+        });
+        match client.call(methods::JOB_SUBMIT, params).await {
+            Ok(_) => submitted += 1,
+            Err(_) => failed += 1,
+        }
+    }
+    model.status_line = format!(
+        "导入 {path}: {} 行 → 提交 {submitted} / 失败 {failed}（{workflow}）",
+        rows.len()
+    );
+    refresh_lists(model, Some(client)).await;
+    model.page = Page::Jobs;
 }
 
 /// 切页（附带页数据加载）。

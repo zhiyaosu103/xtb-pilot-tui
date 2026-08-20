@@ -226,6 +226,8 @@ async fn main() -> Result<()> {
     }
 
     // ---- 服务：TCP（agent）+ UDS（TUI）----
+    // UDS 不鉴权（README §3.7 声明）：本地 socket 文件权限即信任边界，
+    // 人类用户直接输入 `xtbp-tui` 无需 --token；TCP agent 保持 token 鉴权。
     let config = Arc::new(ServerConfig {
         token: token.clone(),
         event_bus: bus,
@@ -251,10 +253,14 @@ async fn main() -> Result<()> {
         match tokio::net::UnixListener::bind(&uds_path) {
             Ok(listener) => {
                 info!("UDS 监听于 {}", uds_path.display());
+                let uds_config = Arc::new(ServerConfig {
+                    token: String::new(),
+                    event_bus: config.event_bus.clone(),
+                });
                 uds_task = Some(tokio::spawn(serve_uds(
                     listener,
                     Arc::clone(&state),
-                    config,
+                    uds_config,
                     shutdown.clone(),
                 )));
             }

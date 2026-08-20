@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use serde_json::json;
 use xtbp_assemble::{AssembleError, HelperClient, assemble};
 use xtbp_core::job::JobParams;
-use xtbp_core::method::{Method, MethodFamily, Solvent};
+use xtbp_core::method::{Method, MethodFamily, Solvation, Solvent};
 use xtbp_core::molecule::{Charge, Molecule, Multiplicity};
 use xtbp_core::workflow::WorkflowTemplate;
 
@@ -215,7 +215,11 @@ fn test_params() -> JobParams {
     JobParams {
         method: Method {
             family: MethodFamily::Gfn2Xtb,
+            solvation: Solvation::Alpb,
             solvent: Some(Solvent("water".into())),
+            etemp: None,
+            accuracy: None,
+            maxiter: None,
         },
         charge: 0,
         multiplicity: 1,

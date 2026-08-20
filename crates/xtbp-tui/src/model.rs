@@ -163,13 +163,83 @@ pub enum InputMode {
     Filter,
     /// 工作流页输入 SMILES。
     Smiles,
+    /// 批量导入 .smi 文件路径（i）。
+    SmiPath,
+    /// 编辑溶剂名（e）。
+    Solvent,
+    /// 编辑数值参数（t/a/m/c/n）。
+    Number(NumberField),
 }
+
+/// 可编辑的数值提交参数。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NumberField {
+    /// 电子温度 K（--etemp）。
+    Etemp,
+    /// SCF 精度（--acc）。
+    Accuracy,
+    /// SCF 最大迭代（--maxiter）。
+    Maxiter,
+    /// 电荷。
+    Charge,
+    /// 多重度。
+    Multiplicity,
+}
+
+/// 计算水平（对应 MethodFamily 的 serde kebab-case 名）。
+pub const FAMILY_NAMES: [&str; 4] = ["gfn2-xtb", "gfn1-xtb", "gfn0-xtb", "gfn-ff"];
+/// 计算水平显示名。
+pub const FAMILY_LABELS: [&str; 4] = ["GFN2-xTB", "GFN1-xTB", "GFN0-xTB", "GFN-FF"];
+/// 隐式溶剂模型（对应 Solvation 的 serde kebab-case 名）。
+pub const SOLVATION_NAMES: [&str; 3] = ["none", "alpb", "gbsa"];
+/// 溶剂模型显示名。
+pub const SOLVATION_LABELS: [&str; 3] = ["气相", "ALPB", "GBSA"];
 
 /// 工作流提交表单。
 #[derive(Debug, Clone)]
 pub struct SubmitForm {
     pub workflow: usize,
     pub smiles: String,
+    /// 计算水平索引（FAMILY_NAMES）。
+    pub family: usize,
+    /// 溶剂模型索引（SOLVATION_NAMES；0 = 气相）。
+    pub solvation: usize,
+    /// 溶剂名（solvation > 0 时生效）。
+    pub solvent: String,
+    /// 电子温度 K（None = xtb 默认）。
+    pub etemp: Option<f64>,
+    /// SCF 精度（None = xtb 默认 1.0）。
+    pub accuracy: Option<f64>,
+    /// SCF 最大迭代（None = xtb 默认）。
+    pub maxiter: Option<u32>,
+    /// 电荷。
+    pub charge: i8,
+    /// 多重度。
+    pub multiplicity: u8,
+}
+
+impl SubmitForm {
+    /// 提交参数 JSON（method/charge/multiplicity 快照，与 JobParams 对齐）。
+    pub fn to_params_json(&self) -> serde_json::Value {
+        let solvent = if self.solvation > 0 && !self.solvent.trim().is_empty() {
+            serde_json::Value::String(self.solvent.trim().to_string())
+        } else {
+            serde_json::Value::Null
+        };
+        serde_json::json!({
+            "method": {
+                "family": FAMILY_NAMES[self.family.min(FAMILY_NAMES.len() - 1)],
+                "solvation": SOLVATION_NAMES[self.solvation.min(SOLVATION_NAMES.len() - 1)],
+                "solvent": solvent,
+                "etemp": self.etemp,
+                "accuracy": self.accuracy,
+                "maxiter": self.maxiter,
+            },
+            "charge": self.charge,
+            "multiplicity": self.multiplicity,
+            "threads": 1,
+        })
+    }
 }
 
 /// 应用模型（单线程持有，事件驱动更新）。
@@ -258,6 +328,14 @@ impl Default for AppModel {
             form: SubmitForm {
                 workflow: 0,
                 smiles: "C1=CC=CC=C1".into(),
+                family: 0,
+                solvation: 0,
+                solvent: "water".into(),
+                etemp: None,
+                accuracy: None,
+                maxiter: None,
+                charge: 0,
+                multiplicity: 1,
             },
             quit: false,
         }

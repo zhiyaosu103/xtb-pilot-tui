@@ -1,12 +1,13 @@
 //! 工作流模板占位符渲染（设计文档 §3.4：模板只声明骨架，渲染在 xtbp-assemble）。
 //!
 //! 支持的占位符：`{smiles}` `{charge}` `{mult}` `{threads}` `{input_xyz}`
-//! `{solvent}` `{method_flags}`。其中 `{method_flags}` 展开为 [`Method::xtb_flags`]
-//! 的数组元素，就地展开进 command 数组（仅作为独立 argv 元素时生效）。
+//! `{solvent}` `{solvent_model}` `{method_flags}`。其中 `{method_flags}` 展开为
+//! [`Method::xtb_flags`] 的数组元素，就地展开进 command 数组（仅作为独立 argv
+//! 元素时生效）；`{solvent_model}` 渲染为 `--alpb`/`--gbsa`（气相时模板错误）。
 //! 未知占位符 / 未闭合占位符 → [`AssembleError::Template`]。
 
 use crate::{AssembleError, Result};
-use xtbp_core::method::Method;
+use xtbp_core::method::{Method, Solvation};
 use xtbp_core::workflow::WorkflowStep;
 
 /// 渲染上下文（占位符取值来源）。
@@ -25,6 +26,8 @@ pub struct RenderCtx<'a> {
     pub input_xyz: &'a str,
     /// 可选溶剂名（仅 `{solvent}` 占位符；未设置却引用时视为模板错误）。
     pub solvent: Option<&'a str>,
+    /// 隐式溶剂模型（`{solvent_model}` 占位符 → --alpb/--gbsa）。
+    pub solvation: Solvation,
 }
 
 /// 单个步骤的渲染结果。
@@ -93,6 +96,11 @@ fn lookup(name: &str, ctx: &RenderCtx) -> Option<String> {
         "threads" => Some(ctx.threads.to_string()),
         "input_xyz" => Some(ctx.input_xyz.to_string()),
         "solvent" => ctx.solvent.map(str::to_string),
+        "solvent_model" => match ctx.solvation {
+            Solvation::Alpb => Some("--alpb".into()),
+            Solvation::Gbsa => Some("--gbsa".into()),
+            Solvation::None => None,
+        },
         _ => None,
     }
 }
@@ -126,6 +134,7 @@ mod tests {
             method,
             input_xyz: "mol.xyz",
             solvent,
+            solvation: method.solvation,
         }
     }
 
@@ -165,7 +174,11 @@ mod tests {
     fn method_flags_expand_inline() {
         let m = Method {
             family: MethodFamily::Gfn2Xtb,
+            solvation: xtbp_core::method::Solvation::Alpb,
             solvent: Some(Solvent("toluene".into())),
+            etemp: None,
+            accuracy: None,
+            maxiter: None,
         };
         let s = step(&["xtb", "{input_xyz}", "{method_flags}"], &[]);
         let out = render_step(&s, &ctx(&m, None)).unwrap();
@@ -173,6 +186,25 @@ mod tests {
             out.command,
             vec!["xtb", "mol.xyz", "--gfn", "2", "--alpb", "toluene"]
         );
+    }
+
+    #[test]
+    fn solvent_model_placeholder_renders_alpb_gbsa() {
+        let m = Method {
+            family: MethodFamily::Gfn2Xtb,
+            solvation: xtbp_core::method::Solvation::Gbsa,
+            solvent: None,
+            etemp: None,
+            accuracy: None,
+            maxiter: None,
+        };
+        let s = step(&["xtb", "{input_xyz}", "{solvent_model}", "{solvent}"], &[]);
+        let out = render_step(&s, &ctx(&m, Some("thf"))).unwrap();
+        assert_eq!(out.command, vec!["xtb", "mol.xyz", "--gbsa", "thf"]);
+        // 气相引用 {solvent_model} → 模板错误
+        let gas = Method::gfn2();
+        let err = render_step(&s, &ctx(&gas, Some("thf"))).unwrap_err();
+        assert!(err.to_string().contains("{solvent_model}"));
     }
 
     #[test]

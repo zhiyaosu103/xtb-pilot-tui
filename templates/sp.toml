@@ -13,7 +13,7 @@ outputs = ["mol.xyz"]
 id = "sp"
 component = "xtb"
 depends_on = ["gen3d"]
-command = ["xtb", "{input_xyz}", "--sp", "--json", "--chrg", "{charge}", "--uhf", "{mult}"]
+command = ["xtb", "{input_xyz}", "--sp", "--json", "--chrg", "{charge}", "--uhf", "{mult}", "{method_flags}"]
 inputs = ["mol.xyz"]
 outputs = ["xtbout.json"]
 collect = [{ file = "xtbout.json", parser = "xtb-json" }]

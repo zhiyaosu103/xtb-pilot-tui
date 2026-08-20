@@ -162,10 +162,15 @@ pub const BUILTIN_TEMPLATES: &[&str] = &[
 /// 内置模板默认方法（各模板缺省参数时的起点）。
 pub fn builtin_default_method(template: &str) -> Method {
     match template {
-        // solv-series 默认 ALPB(水)；其余气相 GFN2。
+        // solv-series 默认 ALPB(水)——溶剂由 extra.solvents 展开，
+        // method.solvent 留空避免与 {solvent_model} {solvent} 占位符重复。
         "solv-series" => Method {
             family: crate::method::MethodFamily::Gfn2Xtb,
-            solvent: Some(crate::method::Solvent("water".into())),
+            solvation: crate::method::Solvation::Alpb,
+            solvent: None,
+            etemp: None,
+            accuracy: None,
+            maxiter: None,
         },
         _ => Method::gfn2(),
     }
@@ -248,7 +253,9 @@ depends_on = ["a"]
 
     #[test]
     fn solv_series_defaults_to_alpb_water() {
+        // 溶剂由 extra.solvents 展开（缺省 water）；method 只带 ALPB 模型
         let m = builtin_default_method("solv-series");
-        assert!(m.solvent.is_some());
+        assert_eq!(m.solvation, crate::method::Solvation::Alpb);
+        assert!(m.solvent.is_none(), "溶剂名应由 extra.solvents 展开");
     }
 }

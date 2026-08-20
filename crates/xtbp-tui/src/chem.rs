@@ -147,6 +147,27 @@ pub fn open_external_viewer(path: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// 解析 .smi 批量输入文件（SMILES 一行一条，可带名称/注释）：
+/// `SMILES [name]`；`#` 开头或空行跳过；行内首个空白后的文本为名称。
+pub fn parse_smi(text: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut it = line.split_whitespace();
+        let Some(smiles) = it.next() else { continue };
+        // 基础形态校验：SMILES 至少含一个字母元素符号（拒绝纯数字/符号行）
+        if !smiles.chars().any(|c| c.is_ascii_alphabetic()) {
+            continue;
+        }
+        let name = it.next().unwrap_or("").to_string();
+        out.push((smiles.to_string(), name));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,6 +199,24 @@ mod tests {
                 .iter()
                 .all(|(x, y, _)| (0.0..=100.0).contains(x) && (0.0..=40.0).contains(y))
         );
+    }
+
+    #[test]
+    fn parse_smi_basic_and_skip_rules() {
+        let text = "# comment\nc1ccccc1 benzene\nCCO ethanol extra-tokens\n\nC1CCCCC1\n\n";
+        let rows = parse_smi(text);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0], ("c1ccccc1".to_string(), "benzene".to_string()));
+        assert_eq!(rows[1], ("CCO".to_string(), "ethanol".to_string()));
+        assert_eq!(rows[2].0, "C1CCCCC1");
+    }
+
+    #[test]
+    fn parse_smi_rejects_garbage_rows() {
+        let text = "123456\n###\n   \nCC";
+        let rows = parse_smi(text);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, "CC");
     }
 
     #[test]

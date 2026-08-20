@@ -328,7 +328,7 @@ def main():
     try:
         assert wait_port(port), "隔离 daemon 启动失败"
         agent = BareAgent(port, token)
-        tui = Tui(["--uds", uds, "--no-spawn", "--token", token])
+        tui = Tui(["--uds", uds, "--no-spawn"])  # 无 token：UDS 不鉴权（回归）
         try:
             # ---- S1 连接 + 帮助 ----
             tui.wait_for("已连接 daemon", timeout=30, desc="UDS 连接")
@@ -481,6 +481,76 @@ def main():
             tui.type_text(KEYS["backspace"] * 7)
             tui.key("enter")
 
+            # ---- S7c Workflows 页参数编辑 + Enter 直接输入 + .smi 批量导入 ----
+            for _ in range(3):
+                tui.key("tab")
+            tui.wait_for("· Workflows", desc="回到 Workflows 页")
+            # 计算水平循环：GFN2 → GFN1
+            tui.press("]")
+            tui.wait_for("计算水平: GFN1-xTB", desc="计算水平切换")
+            # 溶剂模型循环：气相 → ALPB → GBSA
+            tui.press("}")
+            tui.wait_for("溶剂模型: ALPB", desc="溶剂模型 ALPB")
+            tui.press("}")
+            tui.wait_for("溶剂模型: GBSA", desc="溶剂模型 GBSA")
+            # 溶剂名编辑（e 预填当前值，先清空再输入）
+            tui.press("e")
+            tui.type_text(KEYS["backspace"] * 5)
+            tui.type_text("thf")
+            tui.key("enter")
+            tui.wait_for("溶剂: thf", desc="溶剂名应用")
+            # etemp 编辑
+            tui.press("t")
+            tui.type_text("500")
+            tui.key("enter")
+            tui.wait_for("etemp: 500 K", desc="etemp 应用")
+            # Enter 直接进入 SMILES 输入模式并提交（修复"enter 无反应"）
+            tui.key("enter")
+            tui.type_text("CCO")
+            tui.key("enter", settle=0.5)
+            tui.wait_for("已提交 opt", timeout=30, desc="Enter 直接提交")
+            # 校验 daemon 侧任务参数（method.solvation=gbsa, etemp=500）
+            jobs_now = [
+                j for j in agent.call("job.list", {"limit": 500})
+                if not j.get("parent_id")
+            ]
+            tuned = None
+            for j in jobs_now:
+                m = (j.get("params") or {}).get("method") or {}
+                if m.get("solvation") == "gbsa" and m.get("etemp") == 500.0:
+                    tuned = j
+            assert tuned, "应存在 GBSA+etemp=500 的任务"
+            assert (tuned.get("params") or {}).get("charge") == 0
+            print("[S7c] 参数编辑（GFN1/GBSA/thf/etemp=500）+ Enter 直接提交 ✓")
+
+            # .smi 批量导入：先写临时文件（2 行）
+            smi_path = os.path.join(REPO, "target", "tui-import.smi")
+            with open(smi_path, "w") as f:
+                # 避免与已提交的 CCO 幂等撞车：用全新分子
+                f.write("# test batch\nCC ethane\nC1CCCCC1 hexane\n")
+            # S7c 提交后页面已切到 Jobs：先回 Workflows（i 只在 Workflows 页生效）
+            for _ in range(3):
+                tui.key("tab")
+            tui.wait_for("· Workflows", desc="回到 Workflows 页（导入前）")
+            tui.press("i")
+            tui.type_text(smi_path)
+            tui.key("enter", settle=1.0)
+            tui.wait_for("导入", timeout=30, desc="批量导入完成")
+            tui.wait_for(r"提交 2 / 失败 0", timeout=30, desc="2 行全部提交")
+            jobs_after = agent.call("job.list", {"limit": 500})
+            parents_after = [j for j in jobs_after if not j.get("parent_id")]
+            assert len(parents_after) == len(jobs_now) + 2, "应新增 2 个导入任务"
+            print("[S7d] .smi 批量导入（2 行 → 提交 2 / 失败 0）✓")
+
+            # 恢复默认参数（后续场景不受影响）
+            tui.press("[")
+            tui.press("{")
+            tui.press("{")
+            tui.press("e")
+            tui.type_text(KEYS["backspace"] * 3)
+            tui.type_text("water")
+            tui.key("enter")
+
             # ---- S8 q 退出（daemon 独立存活）----
             tui.press("q", settle=1.0)
             code = tui.wait_exit()
@@ -490,7 +560,7 @@ def main():
             print("[S8] q 退出（退出码 0，daemon 独立存活）✓")
 
             # ---- S9 Ctrl-C 退出 ----
-            tui2 = Tui(["--uds", uds, "--no-spawn", "--token", token])
+            tui2 = Tui(["--uds", uds, "--no-spawn"])  # 无 token（回归）
             tui2.wait_for("已连接 daemon", timeout=30, desc="第二个会话连接")
             tui2.key("ctrl-c")
             code2 = tui2.wait_exit()
