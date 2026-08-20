@@ -1,4 +1,4 @@
-# xTB-Pilot
+# xTB-Pilot-TUI
 
 [![CI](https://github.com/zhiyaosu103/xtb-pilot-tui/actions/workflows/ci.yml/badge.svg)](https://github.com/zhiyaosu103/xtb-pilot-tui/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
@@ -6,7 +6,7 @@
 
 **English** · [中文](README.zh-CN.md)
 
-xTB-Pilot is a Rust-based computational orchestration tool with a TUI frontend for scheduling and managing the **xtb computational chemistry toolchain** (xtb, CREST, xTB4sTDA, sTDA) on WSL / native Linux.
+xTB-Pilot-TUI is a Rust-based computational orchestration tool with a TUI frontend for scheduling and managing the **xtb computational chemistry toolchain** (xtb, CREST, xTB4sTDA, sTDA) on WSL / native Linux.
 
 It follows a daemon architecture: users interact and monitor through a terminal TUI, while external agents / scripts can submit jobs in batch and extract results through a TCP interface (JSON-RPC 2.0).
 
