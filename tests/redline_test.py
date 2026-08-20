@@ -14,6 +14,7 @@ import signal
 import socket
 import subprocess
 import sys
+import random
 import tempfile
 import time
 
@@ -113,25 +114,32 @@ def main():
 
     # ---- 2) 隔离实例 + 混合负载 ----
     tmp = tempfile.mkdtemp(prefix="xtbp-redline-")
-    port, uds, token = 7711, os.path.join(tmp, "x.sock"), "redline-token"
+    port = random.randint(20000, 40000)
+    uds = os.path.join(tmp, "x.sock")
+    token = "redline-token"
     daemon = start_daemon(tmp, port, uds, token)
     assert wait_port(port), "隔离实例启动失败"
     agent = BareAgent(port, token)
 
-    # 提交 24 个任务（水/乙醇 opt 混合，填满队列）
-    mol_ids = []
-    for smiles in ["O", "CCO", "C1=CC=CC=C1"]:
-        mol = agent.call("mol.create", {"smiles": smiles, "charge": 0, "multiplicity": 1})
-        mol_ids.append(mol["id"])
+    # 提交 8 个构象搜索任务（nconf=80，每个 ~10s，确保 kill 时仍在运行）
+    mol = agent.call("mol.create", {"smiles": "CCO", "charge": 0, "multiplicity": 1})
+    mol_ids = [mol["id"]]
     job_ids = []
-    for i in range(24):
+    for i in range(8):
+        # extra.batch_tag 参与内容哈希 → 每个任务唯一（避免幂等去重）
         j = agent.call(
             "job.submit",
-            {"molecule_id": mol_ids[i % 3], "workflow": "opt", "priority": i % 2},
+            {
+                "molecule_id": mol_ids[0],
+                "workflow": "conformer",
+                "priority": i % 2,
+                "params": {"extra": {"batch_tag": i, "nconf": "80"}},
+            },
         )
         job_ids.append(j["job_id"])
-    print(f"[2] 提交 24 个任务（并发 2，含交互/批量混合）")
-    time.sleep(3)  # 让部分任务进入 Running
+    assert len(set(job_ids)) == 8, f"任务应全部唯一: {len(set(job_ids))}"
+    print(f"[2] 提交 8 个 conformer 任务（并发 2，含交互/批量混合）")
+    time.sleep(2)  # 前两个任务正在运行中
 
     # ---- 3) kill -9 ----
     daemon_pid = daemon.pid
@@ -159,7 +167,8 @@ def main():
     )
     done = statuses.get("done", 0)
     interrupted = statuses.get("interrupted", 0)
-    assert done + interrupted == 24, f"任务数不守恒: {statuses}"
+    assert done + interrupted == 16, f"任务数不守恒: {statuses}"
+    assert interrupted >= 2, f"应有被中断的任务（kill 时机在运行中）: {statuses}"
     print(f"[4] 状态可解释 ✓（done={done}, interrupted={interrupted}）")
 
     # ---- 5) 重启后功能完好 ----

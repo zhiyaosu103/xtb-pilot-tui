@@ -344,18 +344,7 @@ impl WorkflowEngine {
 
         // 渲染命令（extra 占位符先行替换）
         let (charge, mult) = step_charge_mult(step, &job.params);
-        let mut command = step.command.clone();
-        for arg in &mut command {
-            for (key, default) in [("nconf", "20"), ("sigma_ev", "0.4")] {
-                let v = job
-                    .params
-                    .extra
-                    .get(key)
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(default);
-                *arg = arg.replace(&format!("{{{key}}}"), v);
-            }
-        }
+        let step_rendered = pre_render_extra(step, &job.params);
         let solvent_name = state
             .variant
             .clone()
@@ -369,7 +358,7 @@ impl WorkflowEngine {
             input_xyz: &input_xyz,
             solvent: solvent_name.as_deref(),
         };
-        let rendered = render_step(step, &ctx)?;
+        let rendered = render_step(&step_rendered, &ctx)?;
 
         // 子任务记录
         let mut child = Job::new(
@@ -681,18 +670,7 @@ impl WorkflowEngine {
             .iter()
             .find(|s| s.component != "rdkit")
             .ok_or_else(|| WorkflowError::Template("模板无执行步骤".into()))?;
-        let mut command = first.command.clone();
-        for arg in &mut command {
-            for (key, default) in [("nconf", "20"), ("sigma_ev", "0.4")] {
-                let v = job
-                    .params
-                    .extra
-                    .get(key)
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(default);
-                *arg = arg.replace(&format!("{{{key}}}"), v);
-            }
-        }
+        let first_rendered = pre_render_extra(first, &job.params);
         let (charge, mult) = step_charge_mult(first, &job.params);
         let solvent = job.params.method.solvent.as_ref().map(|s| s.0.clone());
         let ctx = RenderCtx {
@@ -704,7 +682,7 @@ impl WorkflowEngine {
             input_xyz: "mol.xyz",
             solvent: solvent.as_deref(),
         };
-        let rendered = render_step(first, &ctx)?;
+        let rendered = render_step(&first_rendered, &ctx)?;
         let lines = [
             format!("# xTB-Pilot cmd 快照 · 生成于 {}", format_unix(now_unix())),
             format!("# 工作流: {} · 任务: {}", tpl.id, job.id),
@@ -818,6 +796,22 @@ fn step_charge_mult(step: &WorkflowStep, params: &JobParams) -> (i8, u8) {
     }
 }
 
+/// extra 占位符预替换（{nconf}/{sigma_ev}）→ 返回替换后的步骤副本。
+fn pre_render_extra(step: &WorkflowStep, params: &JobParams) -> WorkflowStep {
+    let mut s = step.clone();
+    for arg in &mut s.command {
+        for (key, default) in [("nconf", "20"), ("sigma_ev", "0.4")] {
+            let v = params
+                .extra
+                .get(key)
+                .and_then(|v| v.as_str())
+                .unwrap_or(default);
+            *arg = arg.replace(&format!("{{{key}}}"), v);
+        }
+    }
+    s
+}
+
 /// argv 转一行命令（含空格转义）。
 fn quote_argv(args: &[String]) -> String {
     args.iter()
@@ -864,4 +858,49 @@ fn write_transitions_csv(output_dir: &Path, transitions: &[Transition]) -> Resul
     }
     wtr.flush().map_err(WorkflowError::Io)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn conformer_step() -> WorkflowStep {
+        WorkflowTemplate::parse(
+            r#"
+id = "conformer"
+description = "x"
+[[steps]]
+id = "crest"
+component = "crest"
+command = ["crest", "{input_xyz}", "--nconf", "{nconf}"]
+"#,
+        )
+        .unwrap()
+        .steps
+        .pop()
+        .unwrap()
+    }
+
+    #[test]
+    fn pre_render_replaces_nconf_from_extra() {
+        let step = conformer_step();
+        let params = JobParams {
+            extra: BTreeMap::from([
+                ("nconf".into(), serde_json::json!("42")),
+                ("batch_tag".into(), serde_json::json!(7)),
+            ]),
+            ..JobParams::default()
+        };
+        let rendered = pre_render_extra(&step, &params);
+        assert!(rendered.command.contains(&"42".to_string()));
+        assert!(!rendered.command.iter().any(|a| a.contains("{nconf}")));
+    }
+
+    #[test]
+    fn pre_render_defaults_nconf_to_20() {
+        let step = conformer_step();
+        let rendered = pre_render_extra(&step, &JobParams::default());
+        assert!(rendered.command.contains(&"20".to_string()));
+    }
 }
