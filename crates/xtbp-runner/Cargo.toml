@@ -8,6 +8,8 @@ license.workspace = true
 
 [dependencies]
 tokio.workspace = true
+tokio-util.workspace = true
+libc.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 serde.workspace = true

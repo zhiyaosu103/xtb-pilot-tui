@@ -34,6 +34,7 @@ authors = ["xTB-Pilot Developers"]
 tokio = { version = "1", features = ["rt-multi-thread", "process", "signal", "time", "sync", "io-util", "net", "macros"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 futures = "0.3"
+libc = "0.2"
 
 # --- TUI（仅 xtbp-tui；ratatui/crossterm/tui-input 三者必须同批升级）---
 ratatui = "0.29"
