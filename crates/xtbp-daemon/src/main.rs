@@ -118,6 +118,7 @@ async fn main() -> Result<()> {
 
     // ---- token（§3.7：单用户本地 token，agent.json 自发现）----
     let token = resolve_token(&args.token)?;
+    ensure_xtb4stda_home_params();
 
     // ---- 组件登记（自动发现 + 版本探测）----
     let registry_path = PathBuf::from(expand_tilde(&args.registry));
@@ -347,6 +348,33 @@ fn read_token_from_agent_json(path: &Path) -> Option<String> {
     let raw = std::fs::read_to_string(path).ok()?;
     let v = serde_json::from_str::<serde_json::Value>(&raw).ok()?;
     v.get("token").and_then(|t| t.as_str()).map(String::from)
+}
+
+/// xtb4stda 参数文件兜底：它的默认路径是 `~/.param_stda{1,2}.xtb`（而非
+/// XTB4STDAHOME），HOME 侧缺失或空文件时从 XTB4STDAHOME 同步（实测踩坑：
+/// 空文件会报 `no basis found for atom 1 Z=6`）。
+fn ensure_xtb4stda_home_params() {
+    let Ok(home) = std::env::var("XTB4STDAHOME") else {
+        return;
+    };
+    let Ok(home_dir) = std::env::var("HOME") else {
+        return;
+    };
+    for name in [".param_stda1.xtb", ".param_stda2.xtb"] {
+        let src = Path::new(&home).join(name);
+        let dst = Path::new(&home_dir).join(name);
+        let dst_empty_or_missing = match std::fs::metadata(&dst) {
+            Ok(m) => m.len() == 0,
+            Err(_) => true,
+        };
+        if dst_empty_or_missing && src.is_file() {
+            if let Err(e) = std::fs::copy(&src, &dst) {
+                warn!(src = %src.display(), dst = %dst.display(), "xtb4stda 参数同步失败: {e}");
+            } else {
+                info!(path = %dst.display(), "xtb4stda 参数文件已同步到 HOME");
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

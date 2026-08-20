@@ -313,6 +313,19 @@ impl AppState {
             let result = this.engine.run(&job_for_task, gen3d).await;
             if let Err(e) = result {
                 warn!(job = %job_for_task.id, "工作流驱动失败: {e}");
+                // 兜底：引擎异常退出时父任务不得滞留 running
+                if let Some(mut j) = this.store.get_job(&job_for_task.id).await.unwrap_or(None)
+                    && !j.status.is_terminal()
+                {
+                    j.fail(error_codes::COMPONENT_UNAVAILABLE, e.to_string());
+                    let _ = j.transition(JobStatus::Failed);
+                    let _ = this.store.update_job(&j).await;
+                    this.bus.publish(xtbp_core::job::JobEvent::Finished {
+                        job_id: job_for_task.id.to_string(),
+                        ok: false,
+                        error_code: Some(error_codes::COMPONENT_UNAVAILABLE.into()),
+                    });
+                }
             }
         });
 
