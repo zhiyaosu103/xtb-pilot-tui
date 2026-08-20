@@ -189,6 +189,7 @@ async fn main() -> Result<()> {
         started_at: now_unix(),
         data_dir: data_dir.clone(),
         templates_dir: templates_dir.clone(),
+        shutdown: shutdown.clone(),
     };
     let state = Arc::new(state);
 

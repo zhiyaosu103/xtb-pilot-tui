@@ -189,11 +189,24 @@ async fn run(terminal: &mut DefaultTerminal, args: &Args) -> Result<()> {
 // 事件处理
 // ---------------------------------------------------------------------------
 
-async fn handle_key(model: &mut AppModel, client: Option<&mut Client<UnixStream>>, key: &KeyEvent) {
-    // Ctrl-C：任何时刻退出（与帮助文案一致；优先于一切页面/输入模式键位）
+async fn handle_key(
+    model: &mut AppModel,
+    mut client: Option<&mut Client<UnixStream>>,
+    key: &KeyEvent,
+) {
+    // Ctrl-C：任何时刻「全链退出」——先请求 daemon 优雅停机
+    // （取消全部任务、递归杀计算进程组与 RDKit helper），再退 TUI。
+    // 与 q/Esc 不同：q 只退 TUI，daemon 独立存活（设计文档 §2.1）。
     if key.modifiers.contains(KeyModifiers::CONTROL)
         && matches!(key.code, KeyCode::Char('c') | KeyCode::Char('C'))
     {
+        if let Some(c) = client.as_mut()
+            && c.call(methods::SYS_SHUTDOWN, serde_json::json!({}))
+                .await
+                .is_ok()
+        {
+            model.status_line = "已请求 daemon 停机（计算进程一并清理）".into();
+        }
         model.quit = true;
         return;
     }

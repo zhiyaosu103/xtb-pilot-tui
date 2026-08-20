@@ -40,6 +40,8 @@ pub struct AppState {
     pub started_at: i64,
     pub data_dir: PathBuf,
     pub templates_dir: PathBuf,
+    /// 优雅停机令牌（SIGTERM / Ctrl-C / sys.shutdown 共用同一条停机路径）。
+    pub shutdown: tokio_util::sync::CancellationToken,
 }
 
 /// 便捷构造：把组件登记表转成引擎 resolver。
@@ -140,6 +142,7 @@ impl ApiHandler for AppState {
             methods::RES_EXPORT => self.res_export(&params).await,
             methods::INST_LIST => self.inst_list().await,
             methods::SYS_HEALTH => self.sys_health().await,
+            methods::SYS_SHUTDOWN => self.sys_shutdown().await,
             other => Err(ApiError::method_not_found(other)),
         }
     }
@@ -596,6 +599,18 @@ impl AppState {
             "templates_dir": self.templates_dir.display().to_string(),
             "db": "sqlite",
         }))
+    }
+
+    /// 优雅停机（TUI Ctrl-C 全链清理的落点）：取消调度器（递归杀
+    /// 计算进程组）→ 递归杀 RDKit helper 进程组 → 触发 daemon 退出。
+    async fn sys_shutdown(&self) -> std::result::Result<Value, ApiError> {
+        self.sched.shutdown();
+        if let Some(h) = self.helper.lock().await.as_ref() {
+            h.kill_tree();
+        }
+        self.helper.lock().await.take(); // HelperClient drop → kill_on_drop 兜底
+        self.shutdown.cancel();
+        Ok(json!({ "shutting_down": true }))
     }
 
     // ------------------------------------------------------------------

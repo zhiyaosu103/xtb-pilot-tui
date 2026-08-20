@@ -27,6 +27,9 @@ pub mod methods {
     pub const RES_EXPORT: &str = "res.export";
     pub const INST_LIST: &str = "inst.list";
     pub const SYS_HEALTH: &str = "sys.health";
+    /// 请求 daemon 优雅停机（TUI Ctrl-C 全链清理用：取消全部任务、
+    /// 递归杀计算子进程、清理 helper，然后进程退出）。
+    pub const SYS_SHUTDOWN: &str = "sys.shutdown";
     /// 订阅：job 事件推送。
     pub const JOB_EVENTS: &str = "job.events";
     /// 订阅：队列深度推送。
@@ -402,6 +405,7 @@ pub fn api_schema() -> serde_json::Value {
             methods::RES_EXPORT: schema_for!(ResExportParams),
             methods::INST_LIST: schema_for!(serde_json::Value),
             methods::SYS_HEALTH: schema_for!(serde_json::Value),
+            methods::SYS_SHUTDOWN: schema_for!(serde_json::Value),
             methods::JOB_EVENTS: schema_for!(SubscribeParams),
             methods::QUEUE_EVENTS: schema_for!(SubscribeParams),
         },

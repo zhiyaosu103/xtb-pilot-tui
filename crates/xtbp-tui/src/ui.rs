@@ -60,7 +60,7 @@ fn draw_status_line(frame: &mut Frame, model: &AppModel, area: Rect) {
         ("○", Color::LightRed)
     };
     let mode_hint = match model.mode {
-        InputMode::Normal => "hjkl 移动 · Tab 切页 · / 过滤 · ? 帮助 · q/Ctrl-C 退出",
+        InputMode::Normal => "hjkl 移动 · Tab 切页 · / 过滤 · ? 帮助 · q 退出 · Ctrl-C 全链退出",
         InputMode::Filter => "输入过滤词，Enter 应用，Esc 取消，Ctrl-C 退出",
         InputMode::Smiles => "输入 SMILES，Enter 提交，Esc 取消，Ctrl-C 退出",
         InputMode::SmiPath => "输入 .smi 文件路径，Enter 批量导入，Esc 取消",
@@ -719,10 +719,10 @@ fn draw_help(frame: &mut Frame, area: Rect) {
         Line::from("c / n          电荷 / 多重度"),
         Line::from(""),
         Line::from("c（Jobs 页）   取消选中任务        o（Structure 页）外部查看器"),
-        Line::from("?                 本帮助        q / Esc / Ctrl-C  退出"),
+        Line::from("?                 本帮助        q / Esc  退出（daemon 保持运行）"),
         Line::from(""),
         Line::from(Span::styled(
-            "任何时刻 Ctrl-C 或 q 退出；daemon 独立运行，关 TUI 不中断计算。",
+            "Ctrl-C：退出并递归关闭 daemon（取消全部计算、清理 helper 进程组）。",
             Style::default().fg(Color::DarkGray),
         )),
     ];

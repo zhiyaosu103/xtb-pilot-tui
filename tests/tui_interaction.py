@@ -559,13 +559,19 @@ def main():
             assert health["ok"], "daemon 应仍在运行"
             print("[S8] q 退出（退出码 0，daemon 独立存活）✓")
 
-            # ---- S9 Ctrl-C 退出 ----
+            # ---- S9 Ctrl-C 退出 → 递归全链清理 ----
             tui2 = Tui(["--uds", uds, "--no-spawn"])  # 无 token（回归）
             tui2.wait_for("已连接 daemon", timeout=30, desc="第二个会话连接")
             tui2.key("ctrl-c")
             code2 = tui2.wait_exit()
             assert code2 == 0, f"Ctrl-C 退出码应为 0: {code2}"
-            print("[S9] Ctrl-C 退出（退出码 0）✓")
+            # 递归清理：TUI 的 Ctrl-C 应请求 sys.shutdown → daemon 优雅退出
+            # （取消全部任务 → 递归杀计算进程组 → 清理 helper）
+            deadline = time.time() + 20
+            while time.time() < deadline and daemon.poll() is None:
+                time.sleep(0.3)
+            assert daemon.poll() is not None, "Ctrl-C 后 daemon 应退出（递归全链清理）"
+            print("[S9] Ctrl-C 退出 → daemon 递归关闭 ✓")
 
         finally:
             try:
@@ -573,8 +579,9 @@ def main():
             except OSError:
                 pass
     finally:
-        daemon.terminate()
-        daemon.wait(timeout=10)
+        if daemon.poll() is None:
+            daemon.terminate()
+            daemon.wait(timeout=10)
 
     print("\n✅ TUI 真实交互模拟全部通过：帮助/切页/过滤/提交/跳转/取消/退出/Ctrl-C")
 

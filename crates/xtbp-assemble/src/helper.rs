@@ -274,6 +274,24 @@ impl HelperClient {
         // 等待其自然退出；若异常则由 kill_on_drop(true) 兜底。
         let _ = self.child.wait().await;
     }
+
+    /// 递归杀进程组（daemon 停机用）：helper 以 setsid 启动（pgid == pid），
+    /// kill(-pgid) 一次带走 conda run 与 python 孙进程，不留孤儿。
+    pub fn kill_tree(&self) {
+        #[cfg(unix)]
+        {
+            let pid = self.child.id().unwrap_or(0) as i32;
+            if pid > 0 {
+                unsafe {
+                    libc::kill(-pid, libc::SIGKILL);
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = &self.child;
+        }
+    }
 }
 
 /// 默认 helper 入口脚本路径（仓库根 `python/rdkit_helper/main.py`，canonicalize）。
@@ -300,6 +318,16 @@ async fn spawn_child(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    // 成为进程组首领：daemon 停机时 kill_tree（kill(-pgid)）能递归带走
+    // conda run 及其 python 孙进程，不留孤儿。
+    #[cfg(unix)]
+    unsafe {
+        // tokio::process::Command 自带 pre_exec（无需 std CommandExt）
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
 
     let mut child = cmd.spawn().map_err(|e| AssembleError::Rdkit {
         message: format!("拉起 rdkit helper 失败（{}）: {e}", main_py.display()),
