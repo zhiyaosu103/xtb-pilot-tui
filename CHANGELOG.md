@@ -59,7 +59,8 @@
 - UDS 不鉴权、提交表单参数化、`.smi` 批量导入；
 - Ctrl-C 递归全链退出（`sys.shutdown` RPC + helper 进程组清理）；
 - runner 监督循环竞态：子进程退出瞬间的最后输出行丢失——泵任务尚未被调度时
-  直接 `try_recv` 排空所致（CI 低核高争用实测必现），改为有界等待泵收口后再排空。
+  直接 `try_recv` 排空所致（CI 低核高争用实测必现，如 `env_injection_reaches_child`
+  断言 `None`），改为边等泵边 `recv` 排空，并保留 2s 有界超时。
 - 原生 Linux 上 `o` 键查看器不可用：WSL interop 路径失败时降级 `xdg-open`。
 
 ### Changed

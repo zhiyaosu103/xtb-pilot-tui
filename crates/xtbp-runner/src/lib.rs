@@ -274,20 +274,57 @@ where
         }
     }
 
-    // 收口：有界等待泵排空管道（子进程已退出/kill，管道随即 EOF，正常微秒级完成）。
-    // 之前此处直接 try_recv 排空——泵任务可能尚未被调度，子进程退出瞬间的最后几行
-    // 会竞态丢失（CI 低核高争用实测必现：stderr 尾行 / 单行 stdout 丢失）。
-    // 有界等待：子进程退出但孙进程仍持有管道 fd（如 `sleep 30 & exit 0`）时泵会
+    // 收口：子进程已退出/kill 后，仍须排空 stdout/stderr。
+    // 旧实现在 break 后直接 try_recv——泵任务若尚未被调度，子进程瞬间退出的
+    // 最后几行会竞态丢失（CI 低核高争用实测必现：stderr 尾行 / 单行 stdout 丢失，
+    // 例如 tests::env_injection_reaches_child 得到 None 而非注入值）。
+    //
+    // 这里边等泵边 recv：泵读到 EOF 后 drop sender，recv 返回 None 即收口完成。
+    // 有界超时：子进程退出但孙进程仍持有管道 fd（如 `sleep 30 & exit 0`）时泵会
     // 阻塞到 EOF，不能无限等。
-    for pump in pumps {
-        let _ = tokio::time::timeout(Duration::from_secs(2), pump).await;
-    }
-    // 排空残余行（泵已收口，此刻能取到的即全部行）
-    while let Ok(line) = line_rx.try_recv() {
-        if matches!(line, Line::Err { .. }) {
-            push_tail(&mut stderr_tail, line.text());
+    let wait_pumps = async {
+        for pump in pumps {
+            let _ = pump.await;
         }
-        on_line(line);
+    };
+    tokio::pin!(wait_pumps);
+    let drain_deadline = tokio::time::sleep(Duration::from_secs(2));
+    tokio::pin!(drain_deadline);
+    loop {
+        tokio::select! {
+            biased;
+            line = line_rx.recv() => {
+                match line {
+                    Some(line) => {
+                        if matches!(line, Line::Err { .. }) {
+                            push_tail(&mut stderr_tail, line.text());
+                        }
+                        on_line(line);
+                    }
+                    // 全部泵结束并 drop sender，通道已空
+                    None => break,
+                }
+            }
+            _ = &mut wait_pumps => {
+                // 泵 JoinHandle 已全部结束；排空通道中可能仍滞留的行
+                while let Ok(line) = line_rx.try_recv() {
+                    if matches!(line, Line::Err { .. }) {
+                        push_tail(&mut stderr_tail, line.text());
+                    }
+                    on_line(line);
+                }
+                break;
+            }
+            _ = &mut drain_deadline => {
+                while let Ok(line) = line_rx.try_recv() {
+                    if matches!(line, Line::Err { .. }) {
+                        push_tail(&mut stderr_tail, line.text());
+                    }
+                    on_line(line);
+                }
+                break;
+            }
+        }
     }
     outcome.stderr_tail = stderr_tail;
     Ok(outcome)
@@ -427,22 +464,27 @@ mod tests {
     async fn env_injection_reaches_child() {
         let dir = tempfile::tempdir().unwrap();
         let mut opts = sh_opts(dir.path());
-        opts.args = vec!["-c".into(), "echo $XTBP_TEST_VAR".into()];
+        // printenv 只在变量存在时打印，避免 echo 空扩展与壳层差异干扰断言
+        opts.args = vec!["-c".into(), "printenv XTBP_TEST_VAR".into()];
         opts.env
             .insert("XTBP_TEST_VAR".into(), "injected-42".into());
-        let mut got = None;
-        run(
+        let mut outs = Vec::new();
+        let outcome = run(
             &opts,
             |l| {
                 if let Line::Out { text } = l {
-                    got = Some(text);
+                    outs.push(text);
                 }
             },
             CancellationToken::new(),
         )
         .await
         .unwrap();
-        assert_eq!(got.as_deref(), Some("injected-42"));
+        assert_eq!(outcome.exit_code, 0, "stderr_tail={}", outcome.stderr_tail);
+        assert_eq!(
+            outs.iter().map(String::as_str).collect::<Vec<_>>(),
+            vec!["injected-42"]
+        );
     }
 
     #[tokio::test]
